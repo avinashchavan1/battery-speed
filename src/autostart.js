@@ -1,12 +1,12 @@
 // Start-at-login, per operating system, using only what each system ships with:
-//   macOS    LaunchAgents (collector + menu bar app)
+//   macOS    LaunchAgents (collector + menu bar readout), and the app in Applications
 //   Linux    a systemd user service, or an XDG autostart entry without systemd
 //   Windows  a hidden launcher in the user's Startup folder
 // None of it needs admin rights, and `uninstall` removes all of it.
 
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ROOT, dataDir, port } from './paths.js';
@@ -104,21 +104,62 @@ async function macLoad(label) {
   throw new Error(`Could not load ${label}. Try: launchctl bootstrap ${macDomain()} "${macPlist(label)}"`);
 }
 
-/** The menu bar app: the copy shipped in dist/, or one built from source. */
-async function macMenuBinary(log) {
-  const inApp = path.join('Battery Speed.app', 'Contents', 'MacOS', 'BatterySpeedMenu');
-  const shipped = path.join(ROOT, 'dist', inApp);
-  if (existsSync(shipped)) return shipped;
-  const built = path.join(ROOT, 'build', inApp);
-  if (existsSync(built)) return built;
+const MAC_APP = 'Battery Speed.app';
+const MAC_BUNDLE_ID = 'com.batteryspeed.app';
+const MAC_APP_BINARY = path.join('Contents', 'MacOS', 'BatterySpeedMenu');
+
+/** The app bundle to install: the copy shipped in dist/, or one built from source. */
+async function macSourceApp(log) {
+  const shipped = path.join(ROOT, 'dist', MAC_APP);
+  if (existsSync(path.join(shipped, MAC_APP_BINARY))) return shipped;
   try {
     await run('xcrun', ['--find', 'swiftc']);
     await run('bash', [path.join(ROOT, 'scripts', 'build-menubar.sh')], { timeout: 300_000 });
-    return existsSync(built) ? built : null;
+    return existsSync(path.join(shipped, MAC_APP_BINARY)) ? shipped : null;
   } catch {
-    log('Menu bar app skipped: no prebuilt copy and no Swift compiler on this Mac.');
+    log('Mac app skipped: no prebuilt copy and no Swift compiler on this Mac.');
     return null;
   }
+}
+
+/** Applications folders the app may live in: the shared one, else the user's own. */
+const macAppFolders = () => ['/Applications', path.join(os.homedir(), 'Applications')];
+
+/** True if the bundle at `app` is Battery Speed, so it is safe to replace or remove. */
+function macIsOurApp(app) {
+  try {
+    return readFileSync(path.join(app, 'Contents', 'Info.plist'), 'utf8').includes(MAC_BUNDLE_ID);
+  } catch {
+    return false;
+  }
+}
+
+/** Copies the app into Applications. Resolves to the installed bundle's path. */
+async function macInstallApp(log) {
+  const source = await macSourceApp(log);
+  if (!source) return null;
+
+  for (const folder of macAppFolders()) {
+    const dest = path.join(folder, MAC_APP);
+    try {
+      mkdirSync(folder, { recursive: true });
+      accessSync(folder, fsConstants.W_OK);
+    } catch {
+      continue; // not writable: try the next folder
+    }
+    if (existsSync(dest) && !macIsOurApp(dest)) continue; // someone else's app with this name
+    rmSync(dest, { recursive: true, force: true });
+    await run('ditto', [source, dest]);
+    // Tell Launch Services about it, so Spotlight and Launchpad pick it up at once.
+    await run(
+      '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+      ['-f', dest],
+    ).catch(() => {});
+    log(`App installed: ${dest}`);
+    return dest;
+  }
+  log('Could not copy the app into an Applications folder; running it from the package instead.');
+  return source;
 }
 
 async function macInstall(log) {
@@ -153,14 +194,17 @@ ${stringArray([NODE, CLI, 'start'])}
   await macLoad(MAC_COLLECTOR);
   log('Collector installed: starts at login and keeps recording in the background.');
 
-  const menu = await macMenuBinary(log);
-  if (menu) {
+  // Stop any running copy before replacing the app on disk.
+  await macUnload(MAC_MENUBAR);
+  await run('pkill', ['-x', 'BatterySpeedMenu']).catch(() => {});
+  const app = await macInstallApp(log);
+  if (app) {
     writeFileSync(
       macPlist(MAC_MENUBAR),
       plist(
         MAC_MENUBAR,
         `  <key>ProgramArguments</key>
-${stringArray([menu])}
+${stringArray([path.join(app, MAC_APP_BINARY), '--background'])}
   <key>RunAtLoad</key>
   <true/>
   <!-- Restart after a crash, but stay closed after Quit from the menu. -->
@@ -178,7 +222,7 @@ ${stringArray([menu])}
       ),
     );
     await macLoad(MAC_MENUBAR);
-    log('Menu bar app installed.');
+    log('Menu bar readout started. Open "Battery Speed" from Launchpad or Spotlight for the full window.');
   }
 }
 
@@ -187,7 +231,12 @@ async function macUninstall(log) {
     await macUnload(label);
     rmSync(macPlist(label), { force: true });
   }
-  log('Removed the collector and the menu bar app from login items.');
+  await run('pkill', ['-x', 'BatterySpeedMenu']).catch(() => {});
+  for (const folder of macAppFolders()) {
+    const app = path.join(folder, MAC_APP);
+    if (macIsOurApp(app)) rmSync(app, { recursive: true, force: true });
+  }
+  log('Removed the app, the collector and the menu bar readout.');
 }
 
 const macInstalled = () => existsSync(macPlist(MAC_COLLECTOR));

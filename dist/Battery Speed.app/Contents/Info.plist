@@ -4,8 +4,18 @@
 <dict>
   <key>CFBundleName</key>
   <string>Battery Speed</string>
+  <key>CFBundleDisplayName</key>
+  <string>Battery Speed</string>
   <key>CFBundleIdentifier</key>
-  <string>com.batteryspeed.menubar</string>
+  <string>com.batteryspeed.app</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
   <key>CFBundleExecutable</key>
   <string>BatterySpeedMenu</string>
   <key>CFBundlePackageType</key>

@@ -1,7 +1,8 @@
 #!/bin/bash
-# Compiles the macOS menu bar app into dist/Battery Speed.app, as a universal
-# binary (Apple Silicon + Intel) where the installed Xcode can build both.
-# The result is shipped with the package, so other Macs need no compiler.
+# Builds the macOS app (menu bar readout + dashboard window) into
+# dist/Battery Speed.app, as a universal binary (Apple Silicon + Intel) where
+# the installed Xcode can build both. The result is shipped with the package,
+# so other Macs need no compiler.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,7 +11,17 @@ BIN="$APP/Contents/MacOS/BatterySpeedMenu"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+# App icon: draw the 1024px master, then every size macOS asks for.
+ICONSET="$TMP/AppIcon.iconset"
+mkdir -p "$ICONSET"
+xcrun swift "$ROOT/scripts/make-icon.swift" "$TMP/icon-1024.png" >/dev/null
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" "$TMP/icon-1024.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z "$((size * 2))" "$((size * 2))" "$TMP/icon-1024.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,8 +30,18 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 <dict>
   <key>CFBundleName</key>
   <string>Battery Speed</string>
+  <key>CFBundleDisplayName</key>
+  <string>Battery Speed</string>
   <key>CFBundleIdentifier</key>
-  <string>com.batteryspeed.menubar</string>
+  <string>com.batteryspeed.app</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
   <key>CFBundleExecutable</key>
   <string>BatterySpeedMenu</string>
   <key>CFBundlePackageType</key>
@@ -41,7 +62,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 EOF
 
 build() { # build <arch>
-  xcrun swiftc -O -swift-version 5 -framework AppKit \
+  xcrun swiftc -O -swift-version 5 -framework AppKit -framework WebKit \
     -target "$1-apple-macos13.0" -o "$TMP/menu-$1" "$ROOT/menubar/main.swift"
 }
 

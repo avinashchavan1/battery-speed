@@ -12,6 +12,8 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
   up, and reaching 80%.
 - **History.** Charge and power charts from 15 minutes to 7 days, kept locally.
 - **Battery health.** Capacity compared with new, cycle count, and the trend.
+- **A real Mac app.** On macOS it installs into Applications, with its own
+  window, a Dock icon while open, and a live readout in the menu bar.
 - **Private.** Everything stays on your computer. The one exception is the
   optional AI summary, which only runs when you press its button.
 
@@ -27,7 +29,9 @@ battery-speed install
 ```
 
 `install` makes it start at login, keeps it recording in the background, and
-prints the dashboard address (http://localhost:4780).
+prints the dashboard address (http://localhost:4780). On a Mac it also puts
+**Battery Speed** in your Applications folder: open it from Launchpad or
+Spotlight like any other app.
 
 To update later, run the first command again. To try it without keeping it
 running, use `battery-speed start --open` instead of `install`.
@@ -73,7 +77,7 @@ adapts and never shows a number it does not have.
 | Charger's rated watts                | yes | yes | no  | USB-C only |
 | Per-app ranking                      | energy impact | energy impact | CPU use | CPU use |
 | Cycle count                          | yes | yes | most laptops | most laptops |
-| Menu bar readout                     | yes | yes | no  | no  |
+| App window and menu bar readout      | yes | yes | no  | no  |
 
 Where "watts from the charger" is not available, the power chart shows what
 flows into and out of the battery instead.
@@ -111,7 +115,7 @@ erase everything. The dashboard is only reachable from your own computer.
 npm install
 npm test                 # platform parsing tests
 npm start                # run and open the dashboard
-npm run build:menubar    # rebuild the macOS menu bar app (needs Xcode)
+npm run build:menubar    # rebuild the macOS app and its icon (needs Xcode)
 ```
 
 `BATTERY_SIMULATE=limited` makes a Mac report only what Windows and Linux can,

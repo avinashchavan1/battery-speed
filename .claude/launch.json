@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "battery-speed-dev",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=4781", "BATTERY_DB=data/dev.db", "BATTERY_NOTIFY=off", "node", "bin/battery-speed.js", "start"],
+      "port": 4781
+    },
+    {
+      "name": "battery-speed-limited",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=4782", "BATTERY_DB=data/dev-limited.db", "BATTERY_NOTIFY=off", "BATTERY_SIMULATE=limited", "node", "bin/battery-speed.js", "start"],
+      "port": 4782
+    }
+  ]
+}

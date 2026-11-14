@@ -1,0 +1,54 @@
+{
+  "name": "battery-speed",
+  "version": "1.0.0",
+  "description": "Live battery stats, charging speed and time left, in an animated local dashboard. Works on macOS, Windows and Linux.",
+  "keywords": [
+    "battery",
+    "charging",
+    "laptop",
+    "monitor",
+    "dashboard",
+    "macos",
+    "windows",
+    "linux"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/avinashchavan1/battery-speed.git"
+  },
+  "homepage": "https://github.com/avinashchavan1/battery-speed#readme",
+  "bugs": {
+    "url": "https://github.com/avinashchavan1/battery-speed/issues"
+  },
+  "private": true,
+  "type": "module",
+  "bin": {
+    "battery-speed": "bin/battery-speed.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public",
+    "dist",
+    "menubar",
+    "scripts",
+    "README.md",
+    "start.sh",
+    "start.bat",
+    "Start Battery Speed.command",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node bin/battery-speed.js start --open",
+    "test": "node --test",
+    "sample": "node src/battery.js",
+    "build:menubar": "bash scripts/build-menubar.sh"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  }
+}

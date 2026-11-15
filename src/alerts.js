@@ -29,13 +29,15 @@ function duration(min) {
 export class Alerts {
   #store;
   #enabled; // () => boolean: are desktop notifications switched on?
+  #chargerRecord; // (watts) => what charger memory knows about that charger
   #lastFired;
   #prev = null; // previous { percent, state }
   #drainSince = null;
 
-  constructor(store, enabled) {
+  constructor(store, enabled, chargerRecord = () => null) {
     this.#store = store;
     this.#enabled = enabled;
+    this.#chargerRecord = chargerRecord;
     this.#lastFired = store.lastAlertTimes();
   }
 
@@ -94,19 +96,37 @@ export class Alerts {
         body: 'Unplugging around here is easier on the battery than holding it at 100%.',
       });
     }
+    // A charger just connected (or its rating just became known) that has fallen short before.
+    const watts = s.externalConnected ? (s.adapter?.watts ?? null) : null;
+    if (watts != null && prev && (!prev.external || prev.watts !== watts)) {
+      const record = this.#chargerRecord(watts);
+      if (record?.verdict === 'weak') {
+        candidates.push({
+          kind: `weak_charger_${watts}`,
+          cooldownMs: 6 * 60 * MIN,
+          severity: 'warning',
+          title: `This ${watts} W charger can't keep up`,
+          body:
+            `Before, it fell short ${record.shortSharePct}% of the time, by up to ${record.maxShortW} W. ` +
+            'Expect the battery to drain while you work hard' +
+            (record.recommendW && record.recommendW > watts ? `; a ${record.recommendW} W charger would keep up.` : '.'),
+        });
+      }
+    }
     if (d.state === 'full' && prev && prev.state !== 'full') {
       candidates.push({ kind: 'full', severity: 'good', title: 'Fully charged', body: 'The battery is at 100%.' });
     }
 
-    this.#prev = { percent: s.percent, state: d.state };
+    this.#prev = { percent: s.percent, state: d.state, external: s.externalConnected, watts };
 
     const fired = [];
     for (const c of candidates) {
       const last = this.#lastFired.get(c.kind);
-      if (last != null && s.ts - last < COOLDOWN[c.kind]) continue;
+      if (last != null && s.ts - last < (COOLDOWN[c.kind] ?? c.cooldownMs)) continue;
       this.#lastFired.set(c.kind, s.ts);
       const notified = this.#enabled() ? await notify(c.title, c.body) : false;
-      fired.push(this.#store.addAlert({ ...c, ts: s.ts, notified }));
+      const { cooldownMs, ...alert } = c;
+      fired.push(this.#store.addAlert({ ...alert, ts: s.ts, notified }));
     }
     return fired;
   }

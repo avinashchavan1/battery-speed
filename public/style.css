@@ -464,6 +464,23 @@ h2 { font-size: 13px; font-weight: 600; margin: 22px 0 8px 2px; }
 .energy .bar { display: block; height: 100%; border-radius: 2px; background: var(--series-load); transition: width 0.6s ease; }
 .energy .val { color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
 
+/* ---------- chargers ---------- */
+.chargers li { --ink: var(--text-2); display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 10px; padding: 11px 12px; }
+.chargers li[data-verdict="good"] { --ink: var(--good-ink); }
+.chargers li[data-verdict="weak"] { --ink: var(--warn-ink); }
+.chargers .icon { color: var(--ink); width: 18px; height: 18px; margin-top: 1px; }
+.chargers .c-name { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chargers .c-now { font-size: 11px; font-weight: 600; color: var(--accent); padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.chargers .c-summary { grid-column: 2 / -1; color: var(--text); }
+.chargers .c-meta { grid-column: 2 / -1; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.verdict { font-weight: 600; color: var(--ink, var(--text-2)); white-space: nowrap; }
+.verdict[data-verdict="good"] { --ink: var(--good-ink); }
+.verdict[data-verdict="weak"] { --ink: var(--warn-ink); }
+.verdict[data-verdict="learning"] { --ink: var(--text-2); }
+.row-link { color: inherit; text-decoration: none; }
+.row-link:hover { background: var(--fill); }
+.chevron { color: var(--text-3); font-size: 17px; line-height: 1; }
+
 /* ---------- alerts ---------- */
 .alerts li { --ink: var(--text-2); display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 1px 9px; padding: 9px 12px; }
 .alerts li[data-severity="good"] { --ink: var(--good-ink); }

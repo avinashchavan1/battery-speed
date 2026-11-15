@@ -56,6 +56,7 @@ export async function readBattery() {
 //   limited   only what Windows, Linux and Intel Macs report
 //   charging  a strong charger with power to spare
 //   draining  a weak charger that cannot keep up
+//   connecting  the first minute after plugging in, before figures arrive
 const plugged = (s, watts, inMw, loadMw) => {
   const batteryPowerMw = inMw - loadMw;
   return {
@@ -80,6 +81,15 @@ const SIMULATIONS = {
     gauge: { toEmptyMin: null, toFullMin: null },
   }),
   charging: (s) => plugged(s, 96, 83_000, 60_000),
+  connecting: (s) => ({
+    ...plugged(s, null, 0, 0),
+    settling: true,
+    amperageMa: null,
+    batteryPowerMw: null,
+    adapterInMw: null,
+    systemLoadMw: null,
+    gauge: { toEmptyMin: null, toFullMin: null },
+  }),
   draining: (s) => plugged(s, 45, 43_000, 56_100),
 };
 

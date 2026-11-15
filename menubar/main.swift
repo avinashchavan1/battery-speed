@@ -9,6 +9,7 @@
 // Dock icon for as long as that window is open.
 
 import AppKit
+import IOKit.ps
 import WebKit
 
 private let baseURL = URL(string: "http://127.0.0.1:4780")!
@@ -62,7 +63,7 @@ private func symbolName(for r: Reading) -> String {
     case "charging": return "bolt.fill"
     case "draining_on_ac": return "exclamationmark.triangle.fill"
     case "full": return "battery.100percent.bolt"
-    case "holding": return "powerplug.fill"
+    case "holding", "connecting": return "powerplug.fill"
     default:
         switch r.percent {
         case ..<13: return "battery.0percent"
@@ -124,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         timer = Timer.scheduledTimer(withTimeInterval: pollSeconds, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        watchPowerSource()
         // Launched by hand rather than at login: show the window straight away.
         if !CommandLine.arguments.contains("--background") { showDashboard() }
     }
@@ -257,8 +259,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     // MARK: Menu bar item
 
-    private func refresh() {
-        let task = session.dataTask(with: baseURL.appendingPathComponent("api/now")) { [weak self] data, _, _ in
+    /// macOS announces every power source change (plugging in, unplugging, new
+    /// battery figures) the moment it happens. Each one triggers a fresh read,
+    /// so the menu bar and the window update at once instead of on the next poll.
+    private func watchPowerSource() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let callback: IOPowerSourceCallbackType = { context in
+            guard let context else { return }
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { delegate.refresh(fresh: true) }
+        }
+        guard let source = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() else { return }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+    }
+
+    private func refresh(fresh: Bool = false) {
+        // `fresh` asks the collector to read the battery now rather than reuse its last reading.
+        let url = URL(string: fresh ? "http://127.0.0.1:4780/api/now?fresh=1" : "http://127.0.0.1:4780/api/now")!
+        let task = session.dataTask(with: url) { [weak self] data, _, _ in
             let decoded = data.flatMap { try? JSONDecoder().decode(Reading.self, from: $0) }
             Task { @MainActor in
                 self?.reading = decoded

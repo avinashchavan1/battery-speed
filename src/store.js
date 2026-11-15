@@ -94,6 +94,7 @@ export class Store {
 
   /** Saves a sample if it differs from the last one or the heartbeat is due. */
   record(s, state) {
+    if (s.settling) return false; // flows are unknown for a moment; nothing worth keeping
     const key = [
       s.percent, s.remainingMah, s.amperageMa, s.adapterInMw, s.systemLoadMw,
       s.externalConnected, state,
@@ -169,6 +170,16 @@ export class Store {
          WHERE state = 'discharging' AND amperage_ma < 0 AND ts >= ?`,
       )
       .get(sinceTs);
+  }
+
+  /** Rows charger memory works from, oldest first. */
+  chargerRows(sinceTs) {
+    return this.#db
+      .prepare(
+        `SELECT ts, external, adapter_w AS watts, state, adapter_in_mw, system_load_mw, battery_mw
+         FROM samples WHERE ts >= ? ORDER BY ts`,
+      )
+      .all(sinceTs);
   }
 
   /** Time spent and power drawn in each state, for the AI summary digest. */

@@ -92,6 +92,43 @@ export function normalise(raw, ts = Date.now()) {
   };
 }
 
+/**
+ * True if the battery chip last published its figures before the power
+ * source changed. The chip publishes about once a minute, but the plugged-in
+ * flag flips at once, so for up to a minute after plugging in or unplugging
+ * the current and power figures still describe the old state.
+ */
+export function figuresPredateChange(publishedAtMs, changedAfterMs) {
+  return publishedAtMs != null && changedAfterMs != null && publishedAtMs <= changedAfterMs;
+}
+
+/**
+ * Marks a sample whose power figures are out of date. The plug state and the
+ * charge level are current; the flows are unknown until the chip publishes.
+ */
+export function settle(s) {
+  return {
+    ...s,
+    settling: true,
+    amperageMa: null,
+    batteryPowerMw: null,
+    adapterInMw: s.externalConnected ? null : 0,
+    systemLoadMw: null,
+    adapter: s.externalConnected ? { watts: null, voltageMv: null, currentMa: null, name: null, wireless: false } : null,
+    gauge: { toEmptyMin: null, toFullMin: null },
+  };
+}
+
+let lastExternal = null;
+let lastReadAt = null;
+let changedAfter = null; // the change happened after this moment (the read before it)
+
 export async function read() {
-  return normalise(await readRaw());
+  const raw = await readRaw();
+  const s = normalise(raw);
+  if (lastExternal !== null && s.externalConnected !== lastExternal) changedAfter = lastReadAt;
+  lastExternal = s.externalConnected;
+  lastReadAt = s.ts;
+  const publishedAt = typeof raw.UpdateTime === 'number' ? raw.UpdateTime * 1000 : null;
+  return figuresPredateChange(publishedAt, changedAfter) ? settle(s) : s;
 }

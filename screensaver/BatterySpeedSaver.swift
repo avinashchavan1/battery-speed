@@ -44,6 +44,8 @@ private func describe(state: String, percent: Int, etaMinutes: Int?) -> (String,
         return ("Fully charged", .charging)
     case "holding":
         return ("Plugged in, not charging", .neutral)
+    case "connecting":
+        return ("Charger connected", .charging)
     default:
         return ("On battery" + left, percent <= 20 ? .low : .battery)
     }

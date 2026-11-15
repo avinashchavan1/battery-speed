@@ -24,6 +24,12 @@
       "runtimeExecutable": "env",
       "runtimeArgs": ["PORT=4784", "BATTERY_DB=data/dev-draining.db", "BATTERY_NOTIFY=off", "BATTERY_SIMULATE=draining", "node", "bin/battery-speed.js", "start"],
       "port": 4784
+    },
+    {
+      "name": "battery-speed-connecting",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=4785", "BATTERY_DB=data/dev-connecting.db", "BATTERY_NOTIFY=off", "BATTERY_SIMULATE=connecting", "node", "bin/battery-speed.js", "start"],
+      "port": 4785
     }
   ]
 }

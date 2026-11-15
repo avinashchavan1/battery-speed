@@ -8,6 +8,9 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
 - **Know the time left.** Time until empty or full, learned from how your own
   battery charges.
 - **Catch a weak charger.** Tells you when you are plugged in but still draining.
+- **Charger memory.** Remembers every charger you plug in and whether it kept
+  up. Plug in one that fell short before and you are warned straight away,
+  with the size of charger that would keep up.
 - **Alerts.** Desktop notifications for low battery, a charger that can't keep
   up, and reaching 80%.
 - **History.** Charge and power charts from 15 minutes to 7 days, kept locally.
@@ -82,9 +85,15 @@ adapts and never shows a number it does not have.
 | Cycle count                          | yes | yes | most laptops | most laptops |
 | App window and menu bar readout      | yes | yes | no  | no  |
 | Screen saver for the locked screen   | yes | yes | no  | no  |
+| Charger memory                       | yes | yes | no  | USB-C only |
 
 Where "watts from the charger" is not available, the power chart shows what
 flows into and out of the battery instead.
+
+On a Mac the battery publishes new figures once a minute. Plugging in or
+unplugging shows up at once, as "Charger connected" or "Running on battery";
+the watts follow within a minute, and the dashboard says "Reading…" until
+they do, instead of showing figures from before the change.
 
 The Windows and Linux readers are covered by automated tests against
 representative data, but have not yet been run on real Windows or Linux

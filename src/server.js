@@ -12,6 +12,7 @@ import { Alerts } from './alerts.js';
 import { healthTrend } from './health.js';
 import { energyUsers } from './energy.js';
 import { buildDigest, generateSummary } from './summary.js';
+import { ChargerMemory } from './chargers.js';
 import { ROOT, VERSION, dbFile, port as configuredPort, apiKey } from './paths.js';
 
 const HOST = '127.0.0.1'; // never exposed to the network
@@ -36,12 +37,13 @@ export function startServer({ port = configuredPort() } = {}) {
   const store = new Store(dbPath);
   const estimator = new Estimator(new Profile(store));
   const notificationsOn = () => NOTIFY_AVAILABLE && store.getSetting('notifications', 'on') === 'on';
-  const alerts = new Alerts(store, notificationsOn);
+  const chargers = new ChargerMemory(store);
+  const alerts = new Alerts(store, notificationsOn, (watts) => chargers.lookup(watts));
   const clients = new Set();
   let latest = null;
   let fault = null;
   let timer = null;
-  let running = false;
+  let inflight = null; // the read in progress, shared by everyone who asks for one
   let energyCache = { at: 0, pending: null, data: { apps: [], total: 0, metric: PLATFORM?.energyMetric ?? 'cpu' } };
   let summaryPending = null;
 
@@ -62,8 +64,15 @@ export function startServer({ port = configuredPort() } = {}) {
     res.end(JSON.stringify(body));
   };
 
-  async function tick() {
-    running = true;
+  // Reads the battery now. Calls that arrive during a read share it.
+  function tick() {
+    inflight ??= readOnce().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  }
+
+  async function readOnce() {
     clearTimeout(timer);
     try {
       const sample = await readBattery();
@@ -79,7 +88,6 @@ export function startServer({ port = configuredPort() } = {}) {
       fault = { message: err.message };
       broadcast('fault', fault);
     } finally {
-      running = false;
       timer = setTimeout(tick, clients.size ? LIVE_MS : IDLE_MS);
     }
   }
@@ -180,11 +188,20 @@ export function startServer({ port = configuredPort() } = {}) {
       send(res, 'init', { latest, fault, intervalMs: LIVE_MS, meta: meta() });
       clients.add(res);
       req.on('close', () => clients.delete(res));
-      if (!running) tick(); // switch to the live poll rate right away
+      tick(); // switch to the live poll rate right away
       return;
     }
 
-    if (pathname === '/api/now') return json(res, 200, latest);
+    // `fresh=1` (sent by the Mac app the moment the power source changes) or a
+    // reading older than a few seconds triggers a new read before answering.
+    if (pathname === '/api/now') {
+      const stale = !latest || Date.now() - latest.ts > 4000;
+      if (searchParams.get('fresh') === '1' || stale) {
+        tick().then(() => json(res, 200, latest));
+        return;
+      }
+      return json(res, 200, latest);
+    }
 
     if (pathname === '/api/history') {
       const asked = Number(searchParams.get('minutes'));
@@ -206,6 +223,16 @@ export function startServer({ port = configuredPort() } = {}) {
     }
 
     if (pathname === '/api/health') return json(res, 200, healthTrend(store.healthDays()));
+
+    if (pathname === '/api/chargers') {
+      try {
+        const report = chargers.report(Date.now(), { refresh: searchParams.get('fresh') === '1' });
+        return json(res, 200, { ...report, current: latest?.externalConnected ? (latest.adapter?.watts ?? null) : null });
+      } catch (err) {
+        console.error('[chargers] report failed:', err.message);
+        return json(res, 500, { error: err.message });
+      }
+    }
 
     if (pathname === '/api/energy') {
       energyNow().then(

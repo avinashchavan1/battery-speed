@@ -11,7 +11,8 @@ const HISTORY_REFRESH_MS = 60_000;
 const ENERGY_REFRESH_MS = 30_000;
 const HEALTH_REFRESH_MS = 60 * 60_000;
 const MAX_ALERTS_SHOWN = 20;
-const VIEWS = ['overview', 'history', 'energy', 'alerts', 'health', 'summary'];
+const VIEWS = ['overview', 'history', 'energy', 'chargers', 'alerts', 'health', 'summary'];
+const CHARGERS_REFRESH_MS = 5 * 60_000;
 
 const state = {
   view: 'overview',
@@ -20,6 +21,8 @@ const state = {
   alerts: [],
   freshAlertId: null,
   health: null,
+  chargers: null,
+  chargerKey: null, // plug state and rating, to reload charger memory when it changes
   summary: null,
   summaryReady: true,
 };
@@ -30,6 +33,7 @@ const STATE_ICON = {
   discharging: 'battery',
   full: 'check',
   holding: 'pause',
+  connecting: 'plug',
 };
 
 const setIcon = (useId, name) => $(useId).setAttribute('href', `#i-${name}`);
@@ -51,6 +55,7 @@ function showView(name) {
   if (state.view === 'history') renderCharts(); // charts size themselves once visible
   if (state.view === 'energy' || state.view === 'overview') loadEnergy();
   if (state.view === 'alerts') $('alerts-badge').hidden = true;
+  if (state.view === 'chargers') loadChargers();
 }
 
 function wireNavigation() {
@@ -92,12 +97,15 @@ function setArrow(id, { dir, tone, label, note, mw }) {
 }
 
 // One power box: a colored heading, a big number, and a line saying what it is.
+// While figures are being read, a box says so instead of "Not reported".
+let settling = false;
+
 function setBox(name, { tone, eyebrow, watts, note }) {
   $(`card-${name}`).dataset.tone = tone;
   if (eyebrow) setText(`${name}-eyebrow`, eyebrow);
-  setText(`${name}-watts`, watts ?? 'Not reported');
+  setText(`${name}-watts`, watts ?? (settling ? 'Reading…' : 'Not reported'));
   $(`${name}-unit`).hidden = watts == null;
-  setText(`${name}-note`, note);
+  setText(`${name}-note`, settling && watts == null ? 'New figures arrive within a minute.' : note);
 }
 
 const share = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
@@ -149,6 +157,11 @@ function renderSplit(title, parts) {
 // In one or two plain sentences: what this means for you, and what to do.
 function meaning(s, d) {
   const eta = d.etaMin != null ? fmtDuration(d.etaMin) : null;
+  if (s.settling) {
+    return s.externalConnected
+      ? 'You just plugged in. The battery reports new figures once a minute, so how much power the charger gives shows up within a minute.'
+      : 'You just unplugged, so the battery is now powering everything. How much power the laptop uses shows up within a minute.';
+  }
   switch (d.state) {
     case 'draining_on_ac':
       return (
@@ -175,6 +188,7 @@ function meaning(s, d) {
 
 function renderOverview(s) {
   const d = s.derived;
+  settling = Boolean(s.settling);
   $('chip').dataset.severity = d.severity;
   setIcon('chip-icon', STATE_ICON[d.state] ?? 'battery');
   setText('headline', d.headline);
@@ -236,12 +250,12 @@ function renderOverview(s) {
     dir: flow === 'charging' ? 'forward' : flow === 'draining' ? 'reverse' : 'idle',
     tone: flow === 'charging' ? 'charge' : flow === 'draining' ? 'drain' : 'idle',
     label: flow === 'idle' ? '' : `${fmtW(battMw)} W`,
-    note: flow === 'charging' ? 'into the battery' : flow === 'draining' ? 'battery to laptop' : 'nothing flowing',
+    note: settling ? 'updating…' : flow === 'charging' ? 'into the battery' : flow === 'draining' ? 'battery to laptop' : 'nothing flowing',
     mw: battMw,
   });
   setBox('battery', {
     tone: flow === 'charging' ? 'charge' : flow === 'draining' ? 'drain' : 'idle',
-    eyebrow: flow === 'charging' ? 'Going into battery' : flow === 'draining' ? 'Coming out of battery' : 'Battery resting',
+    eyebrow: settling ? 'Battery' : flow === 'charging' ? 'Going into battery' : flow === 'draining' ? 'Coming out of battery' : 'Battery resting',
     watts: battMw == null ? null : flow === 'idle' && !trickle ? '0' : fmtW(battMw),
     note:
       flow === 'charging'
@@ -470,6 +484,79 @@ async function loadEnergy() {
   }
 }
 
+// ---------- chargers ----------
+
+const VERDICT = {
+  good: { label: 'Keeps up', icon: 'check' },
+  weak: { label: "Can't keep up", icon: 'warning' },
+  learning: { label: 'Still learning', icon: 'pause' },
+};
+
+function used(minutes) {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = minutes / 60;
+  return `${hours < 10 ? hours.toFixed(1).replace(/\.0$/, '') : Math.round(hours)} h`;
+}
+
+function renderChargers() {
+  const data = state.chargers;
+  if (!data) return;
+  const today = new Date().toDateString();
+  $('chargers').replaceChildren(
+    ...data.chargers.map((c) => {
+      const li = el('li');
+      li.dataset.verdict = c.verdict;
+      const name = el('span', 'c-name', `${c.watts} W charger`);
+      if (c.watts === data.current) name.append(el('span', 'c-now', 'Connected now'));
+      const verdict = el('span', 'verdict', VERDICT[c.verdict].label);
+      verdict.dataset.verdict = c.verdict;
+      const when = new Date(c.lastSeen).toDateString() === today ? `today at ${fmtClock(c.lastSeen)}` : fmtDayClock(c.lastSeen);
+      const meta = [
+        `Used ${used(c.minutes)} over ${c.sessions} ${c.sessions === 1 ? 'time' : 'times'}`,
+        c.maxInW != null ? `gave up to ${c.maxInW} W` : null,
+        `last used ${when}`,
+      ].filter(Boolean).join(' · ');
+      li.append(icon(VERDICT[c.verdict].icon), name, verdict, el('span', 'c-summary', c.summary), el('span', 'c-meta', meta));
+      return li;
+    }),
+  );
+  $('chargers-empty').hidden = data.chargers.length > 0;
+  setText(
+    'chargers-advice',
+    data.busyW != null && data.recommendW != null
+      ? `When busy, this laptop draws about ${Math.round(data.busyW)} W (it stays below that 95% of the time). ` +
+        `A ${data.recommendW} W charger or bigger runs it and still charges the battery.`
+      : '',
+  );
+  renderChargerRecord();
+}
+
+// On Overview: the connected charger's verdict, linking to the full record.
+function renderChargerRecord() {
+  const s = state.latest;
+  const watts = s?.externalConnected ? s.adapter?.watts : null;
+  const record = watts != null ? state.chargers?.chargers.find((c) => c.watts === watts) : null;
+  $('row-record').hidden = !record;
+  if (!record) return;
+  const verdict = $('row-record-verdict');
+  verdict.dataset.verdict = record.verdict;
+  setText(
+    'row-record-verdict',
+    record.verdict === 'weak'
+      ? `Can't keep up: fell short ${record.shortSharePct}% of the time`
+      : VERDICT[record.verdict].label,
+  );
+}
+
+async function loadChargers({ fresh = false } = {}) {
+  try {
+    state.chargers = await getJson(`/api/chargers${fresh ? '?fresh=1' : ''}`);
+    renderChargers();
+  } catch (err) {
+    console.warn('Could not load charger memory:', err.message);
+  }
+}
+
 // ---------- alerts ----------
 
 function renderAlerts() {
@@ -617,7 +704,7 @@ async function loadHistory({ fresh = false } = {}) {
 }
 
 function appendLive(s) {
-  if (!s) return;
+  if (!s || s.settling) return; // figures are unknown for a moment; nothing to plot
   const last = chart.history[chart.history.length - 1];
   if (!last || s.ts > last.ts) chart.history.push(s);
   const cutoff = s.ts - chart.windowMin * 60_000;
@@ -668,6 +755,11 @@ function onSample(s) {
   renderOverview(s);
   renderHealth(s);
   playChangeSounds(s);
+  // A charger plugged in, unplugged, or newly identified: refresh what is known about it.
+  const key = `${s.externalConnected}:${s.adapter?.watts ?? ''}`;
+  if (state.chargerKey !== null && key !== state.chargerKey) loadChargers({ fresh: true });
+  state.chargerKey = key;
+  renderChargerRecord();
 }
 
 function connect() {
@@ -683,6 +775,7 @@ function connect() {
     loadHealth();
     loadEnergy();
     loadSummary();
+    loadChargers();
   });
   es.addEventListener('sample', (e) => {
     const s = JSON.parse(e.data);
@@ -719,4 +812,5 @@ connect();
 setInterval(loadHistory, HISTORY_REFRESH_MS);
 setInterval(loadEnergy, ENERGY_REFRESH_MS);
 setInterval(loadHealth, HEALTH_REFRESH_MS);
+setInterval(loadChargers, CHARGERS_REFRESH_MS);
 document.addEventListener('visibilitychange', loadEnergy);

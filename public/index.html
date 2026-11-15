@@ -39,6 +39,7 @@
         <li><a href="#overview" data-view="overview"><svg class="icon" aria-hidden="true"><use href="#i-battery"/></svg>Overview</a></li>
         <li><a href="#history" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>History</a></li>
         <li><a href="#energy" data-view="energy"><svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg>Energy</a></li>
+        <li><a href="#chargers" data-view="chargers"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg>Chargers</a></li>
         <li><a href="#alerts" data-view="alerts"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Alerts<span class="nav-badge" id="alerts-badge" hidden></span></a></li>
         <li><a href="#health" data-view="health"><svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg>Health</a></li>
         <li><a href="#summary" data-view="summary"><svg class="icon" aria-hidden="true"><use href="#i-doc"/></svg>Summary</a></li>
@@ -154,6 +155,10 @@
         <h2>Details</h2>
         <div class="group rows">
           <div class="row"><span class="row-label">Charger</span><span class="row-value" id="row-charger">–</span></div>
+          <a class="row row-link" id="row-record" href="#chargers" hidden>
+            <span class="row-label">Its track record</span>
+            <span class="row-value"><span class="verdict" id="row-record-verdict"></span><span class="chevron" aria-hidden="true">›</span></span>
+          </a>
           <div class="row"><span class="row-label">Battery level</span><span class="row-value" id="row-charge">–</span></div>
           <div class="row"><span class="row-label" id="row-time-label">Time remaining</span><span class="row-value" id="row-time">–</span></div>
         </div>
@@ -216,6 +221,17 @@
           <p class="empty" id="energy-empty">Measuring…</p>
         </div>
         <p class="caption" id="energy-sub"></p>
+      </section>
+
+      <!-- Chargers -->
+      <section class="view" id="view-chargers" aria-labelledby="t-chargers" hidden>
+        <h1 id="t-chargers">Chargers</h1>
+        <div class="group rows">
+          <ul class="chargers" id="chargers"></ul>
+          <p class="empty" id="chargers-empty">No chargers recorded yet. Plug one in and it appears here.</p>
+        </div>
+        <p class="caption strong" id="chargers-advice"></p>
+        <p class="caption">Every charger you plug in is remembered: how much it gave, and whether it kept up or left the battery draining. Chargers are told apart by their rated watts, so two 45 W chargers count as one. Based on the last 60 days.</p>
       </section>
 
       <!-- Alerts -->

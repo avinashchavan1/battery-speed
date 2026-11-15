@@ -41,6 +41,8 @@ export class Estimator {
 }
 
 function classify(s, ma) {
+  // Plugged in moments ago: what the charger gives is not known yet.
+  if (s.settling && s.externalConnected) return 'connecting';
   if (!s.externalConnected) return 'discharging';
   if (s.fullyCharged || (s.percent >= 99 && Math.abs(ma) < DEAD_BAND_MA)) return 'full';
   if (ma > DEAD_BAND_MA) return 'charging';
@@ -85,6 +87,22 @@ function describe(s, state) {
   const adapter = s.adapter?.watts ? `${s.adapter.watts} W adapter` : 'charger';
   // Some systems report only the battery's own flow, not adapter input or total load.
   const known = inMw != null && loadMw != null;
+
+  if (s.settling) {
+    return state === 'connecting'
+      ? {
+          severity: 'good',
+          label: 'Charger connected',
+          headline: 'Charger connected',
+          detail: 'Reading how much power it gives. The battery reports new figures once a minute, so this takes up to a minute.',
+        }
+      : {
+          severity: s.percent <= 10 ? 'critical' : s.percent <= 20 ? 'warning' : 'neutral',
+          label: 'On battery',
+          headline: 'Charger unplugged, running on battery',
+          detail: 'Reading how much power the laptop is using. The battery reports new figures once a minute, so this takes up to a minute.',
+        };
+  }
 
   switch (state) {
     case 'draining_on_ac':

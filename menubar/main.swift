@@ -9,6 +9,7 @@
 // Dock icon for as long as that window is open.
 
 import AppKit
+import EventKit
 import IOKit.ps
 import UserNotifications
 import WebKit
@@ -111,6 +112,7 @@ struct AlertPayload: Decodable {
         if kind.hasPrefix("hog_") { return "energy" }
         if kind.hasPrefix("weak_charger_") { return "chargers" }
         if kind == "test" { return "alerts" }
+        if kind == "digest" { return "summary" }
         return "overview"
     }
 }
@@ -180,6 +182,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var reportedPlacement = false
     private var reportedDashboard = false
     private var alertStream: AlertStream?
+    private let eventStore = EKEventStore()
+    private var calendarTimer: Timer?
+    private var warnedEvents = Set<String>()
     private var pendingView: String? // section to show once the window has loaded
 
     private lazy var session: URLSession = {
@@ -200,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         watchPowerSource()
         startNotifications()
+        startCalendarWatch()
         // Launched by hand rather than at login: show the window straight away.
         if !CommandLine.arguments.contains("--background") { showDashboard(view: nil) }
     }
@@ -233,6 +239,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else if let view {
             webView?.evaluateJavaScript("location.hash = '#\(view)'")
         }
+    }
+
+    // MARK: Calendar warnings
+
+    /// Every 5 minutes, and just after the power source changes: if calendar
+    /// warnings are switched on and an event starts within the hour that the
+    /// battery will not last through, raise an alert. Event details are only
+    /// sent to the local collector, never off this computer.
+    private func startCalendarWatch() {
+        calendarTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkCalendar() }
+        }
+        checkCalendarSoon()
+    }
+
+    func checkCalendarSoon() {
+        // Give the fresh battery reading a moment to arrive first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.checkCalendar() }
+    }
+
+    private func checkCalendar() {
+        struct Settings: Decodable { let calendar: Bool? }
+        session.dataTask(with: URL(string: "http://127.0.0.1:4780/api/settings")!) { [weak self] data, _, _ in
+            let on = data.flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }?.calendar ?? false
+            guard on else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.withCalendarAccess { self?.warnIfBatteryShort() } }
+            }
+        }.resume()
+    }
+
+    /// Runs `then` once calendar access is granted, asking the first time.
+    private func withCalendarAccess(_ then: @escaping @MainActor () -> Void) {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        let granted: (Bool, Error?) -> Void = { ok, _ in
+            NSLog("calendar access: %@", ok ? "granted" : "not granted")
+            guard ok else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { then() } }
+        }
+        if #available(macOS 14.0, *) {
+            if status == .fullAccess { then(); return }
+            if status == .notDetermined { eventStore.requestFullAccessToEvents(completion: granted) }
+        } else {
+            if status == .authorized { then(); return }
+            if status == .notDetermined { eventStore.requestAccess(to: .event, completion: granted) }
+        }
+    }
+
+    private func warnIfBatteryShort() {
+        guard let r = reading, r.derived.etaKind == "empty", let eta = r.derived.etaMin else { return }
+        let now = Date()
+        let window = now.addingTimeInterval(3600) // events starting within the hour
+        let predicate = eventStore.predicateForEvents(withStart: now, end: window.addingTimeInterval(4 * 3600), calendars: nil)
+        guard let event = eventStore.events(matching: predicate)
+            .filter({ !$0.isAllDay && $0.startDate >= now && $0.startDate <= window })
+            .min(by: { $0.startDate < $1.startDate }) else { return }
+
+        let minutesUntilEnd = event.endDate.timeIntervalSince(now) / 60
+        guard Double(eta) < minutesUntilEnd else { return } // the battery will last: nothing to say
+
+        let key = String(((event.calendarItemIdentifier) + "\(Int(event.startDate.timeIntervalSince1970))")
+            .filter { $0.isLetter || $0.isNumber }.prefix(80))
+        guard !warnedEvents.contains(key) else { return }
+        warnedEvents.insert(key)
+
+        let start = DateFormatter.localizedString(from: event.startDate, dateStyle: .none, timeStyle: .short)
+        let end = DateFormatter.localizedString(from: event.endDate, dateStyle: .none, timeStyle: .short)
+        let name = (event.title ?? "").isEmpty ? "your next event" : "\u{201C}\(event.title!)\u{201D}"
+        let alert: [String: String] = [
+            "kind": "calendar_\(key)",
+            "title": "Battery won't last through \(name)",
+            "body": "It starts at \(start) and runs until \(end). At the current rate the battery lasts about " +
+                "\(shortDuration(eta)), so it would run out before the end. Plug in before it starts.",
+        ]
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:4780/api/alerts/raise")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: alert)
+        session.dataTask(with: request) { _, _, error in
+            if let error { NSLog("could not raise calendar alert: %@", error.localizedDescription) }
+            else { NSLog("raised calendar alert for an event at %@", start) }
+        }.resume()
     }
 
     // MARK: Notifications
@@ -412,7 +500,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let callback: IOPowerSourceCallbackType = { context in
             guard let context else { return }
             let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated { delegate.refresh(fresh: true) }
+            MainActor.assumeIsolated {
+                delegate.refresh(fresh: true)
+                delegate.checkCalendarSoon() // unplugging is when a calendar warning matters most
+            }
         }
         guard let source = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() else { return }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)

@@ -65,6 +65,16 @@ export class Store {
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      -- How much energy each app used per day while on battery, for the digest.
+      CREATE TABLE IF NOT EXISTS app_energy (
+        day     TEXT NOT NULL,             -- local YYYY-MM-DD
+        name    TEXT NOT NULL,
+        metric  TEXT NOT NULL,             -- 'energy' (macOS) or 'cpu'
+        total   REAL NOT NULL,             -- value x minutes
+        minutes REAL NOT NULL,
+        PRIMARY KEY (day, name)
+      );
     `);
 
     // Added after the first release: how many readings a day's average covers.
@@ -170,6 +180,41 @@ export class Store {
          WHERE state = 'discharging' AND amperage_ma < 0 AND ts >= ?`,
       )
       .get(sinceTs);
+  }
+
+  /** Adds `minutes` of each app's current measurement to its daily total. */
+  recordAppEnergy(day, energy, minutes) {
+    const upsert = this.#db.prepare(`
+      INSERT INTO app_energy (day, name, metric, total, minutes) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(day, name) DO UPDATE SET total = total + excluded.total, minutes = minutes + excluded.minutes
+    `);
+    for (const app of energy.apps) upsert.run(day, app.name, energy.metric, app.power * minutes, minutes);
+  }
+
+  /** The apps that used the most energy on `day`. */
+  topApps(day, limit = 3) {
+    return this.#db
+      .prepare(
+        `SELECT name, metric, total, minutes FROM app_energy WHERE day = ?
+         ORDER BY total DESC LIMIT CAST(? AS INTEGER)`,
+      )
+      .all(day, limit);
+  }
+
+  /** Rows for one period, oldest first: what the digest and analysis read. */
+  periodRows(fromTs, toTs) {
+    return this.#db
+      .prepare(
+        `SELECT ts, percent, state, external, adapter_w AS watts, battery_mw, system_load_mw
+         FROM samples WHERE ts >= ? AND ts < ? ORDER BY ts`,
+      )
+      .all(fromTs, toTs);
+  }
+
+  alertsBetween(fromTs, toTs) {
+    return this.#db
+      .prepare('SELECT ts, kind, severity, title FROM alerts WHERE ts >= ? AND ts < ? ORDER BY ts')
+      .all(fromTs, toTs);
   }
 
   /** Rows charger memory works from, oldest first. */

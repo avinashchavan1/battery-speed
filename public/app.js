@@ -588,7 +588,10 @@ function renderAlerts() {
   $('alerts-empty').hidden = state.alerts.length > 0;
 }
 
-function renderNotifySetting({ notifications, notificationsAvailable }) {
+function renderNotifySetting({ notifications, notificationsAvailable, unplugAt, digest, calendar }) {
+  if (unplugAt != null) $('setting-unplug').value = unplugAt;
+  if (digest != null) $('setting-digest').checked = digest;
+  if (calendar != null) $('setting-calendar').checked = calendar;
   const toggle = $('notify-toggle');
   toggle.checked = notifications;
   toggle.disabled = !notificationsAvailable;
@@ -628,6 +631,35 @@ function wireNotifyTest() {
   });
 }
 
+// The reminder settings: each change is saved at once.
+function wireReminderSettings() {
+  const save = async (patch, revert) => {
+    try {
+      renderNotifySetting(
+        await getJson('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        }),
+      );
+    } catch (err) {
+      revert();
+      console.warn('Could not save the setting:', err.message);
+    }
+  };
+  const unplug = $('setting-unplug');
+  let lastUnplug = unplug.value;
+  unplug.addEventListener('change', () => {
+    const before = lastUnplug;
+    lastUnplug = unplug.value;
+    save({ unplugAt: unplug.value }, () => (unplug.value = lastUnplug = before));
+  });
+  for (const [id, key] of [['setting-digest', 'digest'], ['setting-calendar', 'calendar']]) {
+    const box = $(id);
+    box.addEventListener('change', () => save({ [key]: box.checked }, () => (box.checked = !box.checked)));
+  }
+}
+
 function wireNotifyToggle() {
   const toggle = $('notify-toggle');
   toggle.addEventListener('change', async () => {
@@ -649,6 +681,23 @@ function wireNotifyToggle() {
 
 // ---------- summary ----------
 
+const PRIVACY = {
+  claude:
+    'Written by Claude. Pressing the button sends battery numbers, alert titles and the names of your busiest apps to the Claude API.',
+  local: 'Written by an open-source model running on this computer. Nothing leaves it.',
+  builtin:
+    'Written by Battery Speed itself from your history: free, and nothing leaves this computer. ' +
+    'For AI-written summaries, install Ollama (ollama.com) with a model such as llama3.2, or add a Claude API key with "battery-speed key".',
+};
+
+function renderDigest(digest) {
+  const show = Boolean(digest?.title);
+  $('digest-block').hidden = !show;
+  if (!show) return;
+  setText('digest-title', digest.title);
+  $('digest-lines').replaceChildren(...digest.lines.map((line) => el('li', null, line)));
+}
+
 function renderSummary(summary, note) {
   $('summary-group').hidden = !summary;
   if (summary) {
@@ -657,10 +706,8 @@ function renderSummary(summary, note) {
   const message =
     note ??
     (summary
-      ? `Written ${fmtDayClock(summary.ts)} by ${summary.model}.`
-      : state.summaryReady
-        ? ''
-        : 'Not set up yet. Run "battery-speed key" in Terminal and paste a Claude API key.');
+      ? `Written ${fmtDayClock(summary.ts)} by ${summary.model}.${summary.note ? ` ${summary.note}` : ''}`
+      : '');
   $('summary-note').hidden = !message;
   $('summary-note').textContent = message;
   $('summary-button').textContent = summary ? 'Write Again' : 'Write Summary';
@@ -671,6 +718,8 @@ async function loadSummary() {
     const data = await getJson('/api/summary');
     state.summary = data.summary;
     state.summaryReady = data.ready;
+    setText('summary-privacy', PRIVACY[data.engine?.kind] ?? PRIVACY.builtin);
+    renderDigest(data.digest);
     renderSummary(state.summary);
   } catch (err) {
     console.warn('Could not load the saved summary:', err.message);
@@ -834,6 +883,7 @@ wireCharts();
 wireRange();
 wireNotifyToggle();
 wireNotifyTest();
+wireReminderSettings();
 wireSummary();
 wireSound();
 connect();

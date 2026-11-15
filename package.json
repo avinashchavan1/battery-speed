@@ -1,6 +1,6 @@
 {
   "name": "battery-speed",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Live battery stats, charging speed and time left, in an animated local dashboard. Works on macOS, Windows and Linux.",
   "keywords": [
     "battery",

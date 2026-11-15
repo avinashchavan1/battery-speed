@@ -11,7 +11,8 @@ import { Profile } from './learning.js';
 import { Alerts } from './alerts.js';
 import { healthTrend } from './health.js';
 import { energyUsers } from './energy.js';
-import { buildDigest, generateSummary } from './summary.js';
+import { buildDigest, writeSummaryText, summaryEngine } from './summary.js';
+import { analysePeriod, rankApps, digestText, builtinSummary } from './analysis.js';
 import { ChargerMemory } from './chargers.js';
 import { HogWatch, hogAlert } from './hogs.js';
 import { notify } from './notify.js';
@@ -26,6 +27,10 @@ const ENERGY_CACHE_MS = 20_000;
 // The measurement takes about a second, so it does not run on the charger.
 const HOG_CHECK_MS = 60_000;
 const NOTIFIER_PING_MS = 25_000; // keeps the Mac app's notification stream open
+const DIGEST_HOUR = 7; // the morning digest goes out with the first reading after 7:00
+const DAY_MS = 24 * 3600_000;
+const localDay = (ts) => new Date(ts).toLocaleDateString('en-CA'); // YYYY-MM-DD
+const UNPLUG_LEVELS = ['off', '80', '85', '90', '95'];
 // BATTERY_NOTIFY=off silences desktop notifications entirely (used by the dev copy).
 const NOTIFY_AVAILABLE = process.env.BATTERY_NOTIFY !== 'off';
 
@@ -69,6 +74,7 @@ export function startServer({ port = configuredPort() } = {}) {
   let inflight = null; // the read in progress, shared by everyone who asks for one
   let energyCache = { at: 0, pending: null, data: { apps: [], total: 0, metric: PLATFORM?.energyMetric ?? 'cpu' } };
   let summaryPending = null;
+  let appEnergyAt = null; // when per-app energy was last added to the daily totals
 
   const meta = () => ({
     version: VERSION,
@@ -113,6 +119,59 @@ export function startServer({ port = configuredPort() } = {}) {
     } finally {
       timer = setTimeout(tick, clients.size ? LIVE_MS : IDLE_MS);
     }
+    maybeSendDigest().catch((err) => console.error('[digest] failed:', err.message));
+  }
+
+  // ---------------------------------------------------------------- digest
+
+  const setting = (key, fallback) => store.getSetting(key, fallback);
+  const settingsView = () => ({
+    notifications: notificationsOn(),
+    notificationsAvailable: NOTIFY_AVAILABLE,
+    unplugAt: setting('unplugAt', '80'),
+    digest: setting('digest', 'on') === 'on',
+    calendar: setting('calendar', 'off') === 'on',
+  });
+
+  /** Everything known about one period, for the digest and the built-in analysis. */
+  function periodFacts(fromTs, toTs) {
+    const stats = analysePeriod(store.periodRows(fromTs, toTs));
+    const days = new Set([localDay(fromTs), localDay(toTs - 1)]);
+    const apps = rankApps([...days].flatMap((day) => store.topApps(day, 10)));
+    return { stats, apps };
+  }
+
+  /** Builds yesterday's digest (or returns the one already built today). */
+  function yesterdaysDigest(now = Date.now()) {
+    const today = localDay(now);
+    const saved = setting('digest:last', '');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.builtOn === today) return parsed;
+    }
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const { stats, apps } = periodFacts(midnight.getTime() - DAY_MS, midnight.getTime());
+    const text = digestText(stats, apps);
+    const digest = { builtOn: today, day: localDay(midnight.getTime() - DAY_MS), ...(text ?? { title: null, lines: [] }) };
+    store.setSetting('digest:last', JSON.stringify(digest));
+    return digest;
+  }
+
+  // Once a day, with the first reading after 7:00, sends yesterday's digest.
+  async function maybeSendDigest(now = Date.now()) {
+    if (new Date(now).getHours() < DIGEST_HOUR) return;
+    const today = localDay(now);
+    if (setting('digest:sentOn', '') === today) return;
+    store.setSetting('digest:sentOn', today);
+    if (setting('digest', 'on') !== 'on') return;
+    const digest = yesterdaysDigest(now);
+    if (!digest.title) return; // the laptop was barely used yesterday
+    const fired = await alerts.raise(
+      { kind: 'digest', cooldownMs: 20 * 3600_000, severity: 'good', title: digest.title, body: digest.lines.join(' ') },
+      now,
+    );
+    fired.forEach((alert) => broadcast('alert', alert));
   }
 
   // Measuring takes about a second, so share one reading between callers.
@@ -122,6 +181,7 @@ export function startServer({ port = configuredPort() } = {}) {
       .then((data) => {
         energyCache = { at: Date.now(), pending: null, data };
         watchForHog(data);
+        recordAppEnergy(data);
         return data;
       })
       .catch((err) => {
@@ -129,6 +189,17 @@ export function startServer({ port = configuredPort() } = {}) {
         throw err;
       });
     return energyCache.pending;
+  }
+
+  // On battery, each measurement adds to the day's per-app totals for the digest.
+  function recordAppEnergy(energy) {
+    const now = Date.now();
+    const state = latest?.derived?.state;
+    const onBattery = state === 'discharging' || state === 'draining_on_ac';
+    // Count the time since the last measurement, at most two minutes of it.
+    const minutes = appEnergyAt == null ? 1 : Math.min(2, (now - appEnergyAt) / 60_000);
+    appEnergyAt = onBattery ? now : null;
+    if (onBattery && energy.apps.length) store.recordAppEnergy(localDay(now), energy, minutes);
   }
 
   // Every fresh measurement, whoever asked for it, feeds the hog watch.
@@ -156,9 +227,15 @@ export function startServer({ port = configuredPort() } = {}) {
   function writeSummary() {
     summaryPending ??= (async () => {
       const energy = await energyNow().catch(() => null);
+      const now = Date.now();
       const digest = buildDigest({ store, latest, energy, health: healthTrend(store.healthDays()) });
-      const { text, model } = await generateSummary(digest, apiKey());
-      const summary = { ts: Date.now(), text, model };
+      const builtin = builtinSummary({
+        ...periodFacts(now - DAY_MS, now),
+        latest,
+        chargerReport: chargers.report(now),
+      });
+      const { text, engine, note } = await writeSummaryText({ digest, builtin, apiKey: apiKey() });
+      const summary = { ts: now, text, model: engine.label, engine: engine.kind, note };
       store.setSetting('summary', JSON.stringify(summary));
       return summary;
     })().finally(() => {
@@ -284,8 +361,7 @@ export function startServer({ port = configuredPort() } = {}) {
     if (pathname === '/api/alerts') {
       return json(res, 200, {
         alerts: store.recentAlerts(Math.min(100, Math.max(1, Number(searchParams.get('limit')) || 8))),
-        notifications: notificationsOn(),
-        notificationsAvailable: NOTIFY_AVAILABLE,
+        ...settingsView(),
       });
     }
 
@@ -314,8 +390,37 @@ export function startServer({ port = configuredPort() } = {}) {
     }
 
     if (pathname === '/api/summary' && req.method === 'GET') {
-      return json(res, 200, { summary: savedSummary(), ready: Boolean(apiKey()) });
+      summaryEngine(apiKey()).then((engine) =>
+        json(res, 200, { summary: savedSummary(), ready: true, engine, digest: yesterdaysDigest() }),
+      );
+      return;
     }
+
+    // The Mac app raises calendar warnings through here, so they are saved,
+    // listed and delivered like every other alert.
+    if (pathname === '/api/alerts/raise' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin request refused' });
+      readJsonBody(req).then(
+        async (body) => {
+          if (typeof body.kind !== 'string' || !body.kind.startsWith('calendar_') || !body.title || !body.body) {
+            return json(res, 400, { error: 'Only calendar alerts can be raised here' });
+          }
+          const fired = await alerts.raise({
+            kind: body.kind.slice(0, 120),
+            cooldownMs: 12 * 3600_000,
+            severity: 'warning',
+            title: String(body.title).slice(0, 200),
+            body: String(body.body).slice(0, 500),
+          });
+          fired.forEach((alert) => broadcast('alert', alert));
+          json(res, 200, { raised: fired.length > 0 });
+        },
+        (err) => json(res, 400, { error: err.message }),
+      );
+      return;
+    }
+
+    if (pathname === '/api/settings' && req.method === 'GET') return json(res, 200, settingsView());
 
     // Sends a digest of the last 24 hours to the Claude API. Only ever runs on
     // an explicit request from the dashboard.
@@ -338,7 +443,10 @@ export function startServer({ port = configuredPort() } = {}) {
           if (typeof body.notifications === 'boolean') {
             store.setSetting('notifications', body.notifications ? 'on' : 'off');
           }
-          json(res, 200, { notifications: notificationsOn(), notificationsAvailable: NOTIFY_AVAILABLE });
+          if (UNPLUG_LEVELS.includes(String(body.unplugAt))) store.setSetting('unplugAt', String(body.unplugAt));
+          if (typeof body.digest === 'boolean') store.setSetting('digest', body.digest ? 'on' : 'off');
+          if (typeof body.calendar === 'boolean') store.setSetting('calendar', body.calendar ? 'on' : 'off');
+          json(res, 200, settingsView());
         },
         (err) => json(res, 400, { error: err.message }),
       );

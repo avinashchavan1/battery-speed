@@ -90,12 +90,14 @@ export class Alerts {
         body: `At ${s.percent}% and using ${watts(s.batteryPowerMw)} W from the battery. Save your work.`,
       });
     }
-    if (d.state === 'charging' && s.percent >= 80 && prev && prev.percent < 80) {
+    // Reminder to unplug at the level chosen in Alerts (80% unless changed, or off).
+    const unplugAt = Number(this.#store.getSetting?.('unplugAt', '80'));
+    if (unplugAt && d.state === 'charging' && s.percent >= unplugAt && prev && prev.percent < unplugAt) {
       candidates.push({
         kind: 'reached_80',
         severity: 'good',
-        title: 'Charged to 80%',
-        body: 'Unplugging around here is easier on the battery than holding it at 100%.',
+        title: `Charged to ${unplugAt}%, good time to unplug`,
+        body: 'Batteries wear more slowly when they are not kept full, so unplugging around here helps it last.',
       });
     }
     // A charger just connected (or its rating just became known) that has fallen short before.

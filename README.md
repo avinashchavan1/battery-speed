@@ -11,6 +11,9 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
 - **Energy-hog alert.** When one app uses most of the energy for a few minutes
   while the battery drains, you are told which one and roughly what it costs,
   for example "quitting it would add about 2 hours of battery".
+- **Reminders.** A nudge to unplug at a level you choose (80% by default), a
+  morning digest of yesterday's battery use, and, on a Mac, a warning before a
+  calendar event the battery won't last through.
 - **Charger memory.** Remembers every charger you plug in and whether it kept
   up. Plug in one that fell short before and you are warned straight away,
   with the size of charger that would keep up.
@@ -22,8 +25,11 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
   window, a Dock icon while open, and a live readout in the menu bar.
 - **A screen saver for the locked screen.** Charge, state and time left on a
   black screen, redrawn twice a minute so it costs next to nothing.
-- **Private.** Everything stays on your computer. The one exception is the
-  optional AI summary, which only runs when you press its button.
+- **Free summary.** A written analysis of the last 24 hours, made on your own
+  computer with no account or key. Optionally written by a local open-source
+  model, or by Claude if you add a key.
+- **Private.** Everything stays on your computer, unless you choose Claude for
+  the summary; that only runs when you press its button.
 
 ## Install
 
@@ -131,16 +137,37 @@ that animates, and one redraw every 30 seconds. The text moves to a new spot on
 each redraw to avoid burn-in. It reads the battery from the system directly, so
 it works even when the collector is not running.
 
-## The AI summary (optional)
+## The summary
 
-Press "Write summary" and Claude reads the last 24 hours and tells you, in
-plain language, what happened and what to do about it. Pressing the button
-sends battery numbers, alert titles and the names of your busiest apps to the
-Claude API. Nothing is sent at any other time.
+Press "Write Summary" and you get the last 24 hours in plain language: the most
+important finding, the numbers, and what to do about it. It is written by the
+best option you have set up:
 
-To switch it on, run `battery-speed key` and paste a Claude API key. The key is
-stored in your data folder, readable only by you. `battery-speed key --clear`
-removes it.
+1. **Built-in analysis** (always available): Battery Speed writes it itself
+   from your history. Free, no account, nothing leaves your computer.
+2. **A local open-source model**: install [Ollama](https://ollama.com) and a
+   model (for example `ollama pull llama3.2`), and Battery Speed uses it
+   automatically. Free and private; it runs on your own computer.
+3. **Claude**: run `battery-speed key` and paste a Claude API key. This sends
+   battery numbers, alert titles and the names of your busiest apps to the
+   Claude API, and only when you press the button. `battery-speed key --clear`
+   removes the key.
+
+If an AI model fails, you get the built-in analysis instead.
+
+## Reminders
+
+In the Alerts section:
+
+- **Remind me to unplug at** 80%, 85%, 90%, 95% or never. Batteries wear more
+  slowly when they are not kept full.
+- **Morning digest**: one notification with the first reading after 7:00 each
+  day, covering yesterday: time on battery, charge used, the biggest drain, and
+  any charger that fell short.
+- **Warn before calendar events** (Mac app, off by default): if an event starts
+  within the hour and the battery won't last until it ends, you are told to plug
+  in first. macOS asks once for calendar access; event details stay on your
+  computer.
 
 ## Where things are kept
 

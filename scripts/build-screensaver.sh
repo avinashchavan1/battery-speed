@@ -29,9 +29,9 @@ cat > "$SAVER/Contents/Info.plist" <<'EOF'
   <key>CFBundlePackageType</key>
   <string>BNDL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.2.0</string>
+  <string>1.3.0</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>4</string>
   <key>NSPrincipalClass</key>
   <string>BatterySpeedSaverView</string>
   <key>LSMinimumSystemVersion</key>

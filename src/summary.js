@@ -128,3 +128,80 @@ function userError(message, cause) {
   err.userMessage = message;
   return err;
 }
+
+// ---------------------------------------------------------------- engines
+//
+// The summary is written by the best free-or-configured option available:
+//   1. Claude, if an API key is set up (`battery-speed key`)
+//   2. a local open-source model through Ollama, if it is installed and has
+//      a model (runs on this computer: nothing leaves it, nothing to pay)
+//   3. the built-in analysis (src/analysis.js), which always works
+
+const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+// Preferred families, roughly from best at short factual writing to smallest.
+const OLLAMA_PREFERRED = ['llama3.2', 'llama3.1', 'qwen2.5', 'qwen3', 'gemma3', 'gemma2', 'mistral', 'phi'];
+
+/** The local model to use, or null if Ollama is not running or has no model. */
+export async function findOllamaModel() {
+  try {
+    const res = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return null;
+    const { models = [] } = await res.json();
+    if (!models.length) return null;
+    const preferred = models.find((m) => OLLAMA_PREFERRED.some((family) => m.name.startsWith(family)));
+    return (preferred ?? models[0]).name;
+  } catch {
+    return null;
+  }
+}
+
+async function viaOllama(model, digest) {
+  const res = await fetch(`${OLLAMA}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      options: { temperature: 0.3 },
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: JSON.stringify(digest, null, 2) },
+      ],
+    }),
+    signal: AbortSignal.timeout(180_000), // a small model on a laptop can take a while
+  });
+  if (!res.ok) throw userError(`The local model returned an error (${res.status}).`);
+  const data = await res.json();
+  // Some models write out their reasoning first; keep only the answer.
+  const text = (data.message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  if (!text) throw userError('The local model returned an empty summary.');
+  return text;
+}
+
+/** Which engine would write the summary right now. */
+export async function summaryEngine(apiKey) {
+  if (apiKey) return { kind: 'claude', label: MODEL };
+  const model = await findOllamaModel();
+  if (model) return { kind: 'local', label: `${model}, running on this computer` };
+  return { kind: 'builtin', label: 'built-in analysis' };
+}
+
+/**
+ * Writes the summary with the best available engine. A failing AI engine
+ * falls back to the built-in analysis, so the button always gives an answer.
+ */
+export async function writeSummaryText({ digest, builtin, apiKey }) {
+  const engine = await summaryEngine(apiKey);
+  try {
+    if (engine.kind === 'claude') return { text: (await generateSummary(digest, apiKey)).text, engine };
+    if (engine.kind === 'local') return { text: await viaOllama(engine.label.split(',')[0], digest), engine };
+  } catch (err) {
+    console.error(`[summary] ${engine.kind} failed, using the built-in analysis:`, err.cause?.message ?? err.message);
+    return {
+      text: builtin,
+      engine: { kind: 'builtin', label: 'built-in analysis' },
+      note: `${err.userMessage ?? 'The AI model failed.'} Showing the built-in analysis instead.`,
+    };
+  }
+  return { text: builtin, engine };
+}

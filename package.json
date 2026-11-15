@@ -32,6 +32,7 @@
     "public",
     "dist",
     "menubar",
+    "screensaver",
     "scripts",
     "README.md",
     "start.sh",
@@ -46,7 +47,8 @@
     "start": "node bin/battery-speed.js start --open",
     "test": "node --test",
     "sample": "node src/battery.js",
-    "build:menubar": "bash scripts/build-menubar.sh"
+    "build:menubar": "bash scripts/build-menubar.sh",
+    "build:screensaver": "bash scripts/build-screensaver.sh"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": "^1.8.0"

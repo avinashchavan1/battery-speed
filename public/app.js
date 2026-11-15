@@ -1,8 +1,8 @@
-// Dashboard: live reading, the animated power-flow scene, and the side cards.
+// Dashboard: sidebar navigation, the live overview, and the other sections.
 
 import {
   $, el, svgEl, icon, tween, getJson,
-  fmtW, fmtInt, fmtDuration, fmtClock, fmtDayClock, flowWord,
+  fmtW, fmtSignedW, fmtInt, fmtDuration, fmtClock, fmtDayClock, flowWord,
 } from './fmt.js';
 import { chart, renderCharts, wireCharts } from './charts.js';
 import { sfx } from './sfx.js';
@@ -10,12 +10,13 @@ import { sfx } from './sfx.js';
 const HISTORY_REFRESH_MS = 60_000;
 const ENERGY_REFRESH_MS = 30_000;
 const HEALTH_REFRESH_MS = 60 * 60_000;
-const MAX_ALERTS_SHOWN = 8;
+const MAX_ALERTS_SHOWN = 20;
+const VIEWS = ['overview', 'history', 'energy', 'alerts', 'health', 'summary'];
 
 const state = {
+  view: 'overview',
   latest: null,
   previous: null, // { external, state } of the sample before, for change sounds
-  meta: null,
   alerts: [],
   freshAlertId: null,
   health: null,
@@ -37,102 +38,297 @@ const setText = (id, text) => {
   if (node.textContent !== text) node.textContent = text;
 };
 
-// ---------- hero: status, time left, and the power-flow scene ----------
+// ---------- navigation ----------
 
-// What the time estimate rests on, in one line under the scene.
+function showView(name) {
+  state.view = VIEWS.includes(name) ? name : 'overview';
+  for (const view of VIEWS) $(`view-${view}`).hidden = view !== state.view;
+  for (const link of document.querySelectorAll('#nav a')) {
+    if (link.dataset.view === state.view) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+  $('content').scrollTop = 0;
+  if (state.view === 'history') renderCharts(); // charts size themselves once visible
+  if (state.view === 'energy' || state.view === 'overview') loadEnergy();
+  if (state.view === 'alerts') $('alerts-badge').hidden = true;
+}
+
+function wireNavigation() {
+  window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
+  showView(location.hash.slice(1));
+}
+
+// ---------- overview ----------
+
+// What the time estimate rests on, as a caption under the details.
 function etaNote(d) {
   if (d.etaMin == null) return '';
   const parts = [];
   if (d.etaKind === 'full') {
     parts.push(
       d.etaBasis === 'learned'
-        ? 'Time to full is based on how this battery has charged before.'
-        : 'Time to full is a rough estimate; it sharpens as charging history builds up.',
+        ? 'Time until full is based on how this battery has charged before.'
+        : 'Time until full is a rough estimate that sharpens as charging history builds up.',
     );
   }
   if (d.typical) {
-    parts.push(`At your usual on-battery draw (${d.typical.watts.toFixed(1)} W): ${fmtDuration(d.typical.minutes)}.`);
+    parts.push(`At your usual on-battery draw of ${d.typical.watts.toFixed(1)} W it would last ${fmtDuration(d.typical.minutes)}.`);
   }
-  if (d.gaugeEtaMin != null) parts.push(`The battery's own estimate: ${fmtDuration(d.gaugeEtaMin)}.`);
+  if (d.gaugeEtaMin != null) parts.push(`The battery's own estimate is ${fmtDuration(d.gaugeEtaMin)}.`);
   return parts.join(' ');
 }
 
 // More watts, faster dots: 1 W drifts, 100 W streams.
-const flowSpeed = (mw) => `${Math.max(0.35, 2.4 - Math.log10(1 + Math.abs(mw ?? 8000) / 1000)).toFixed(2)}s`;
+const flowSpeed = (mw) => `${Math.max(0.3, 2 - Math.log10(1 + Math.abs(mw ?? 8000) / 1000) * 0.85).toFixed(2)}s`;
 
-function setPipe(id, { dir, tone, label, mw }) {
-  const pipe = $(id);
-  pipe.dataset.dir = dir;
-  pipe.dataset.tone = tone;
+function setArrow(id, { dir, tone, label, note, mw }) {
+  const arrow = $(id);
+  arrow.dataset.dir = dir;
+  arrow.dataset.tone = tone;
   const speed = flowSpeed(mw);
-  if (pipe.style.getPropertyValue('--dur') !== speed) pipe.style.setProperty('--dur', speed);
+  if (arrow.style.getPropertyValue('--dur') !== speed) arrow.style.setProperty('--dur', speed);
   setText(`${id}-label`, label);
+  setText(`${id}-note`, note);
 }
 
-function renderHero(s) {
-  const d = s.derived;
-  const low = d.state === 'discharging' && s.percent <= 20;
-  document.body.dataset.state = low ? (s.percent <= 10 ? 'critical' : 'low') : d.state;
+// One power box: a colored heading, a big number, and a line saying what it is.
+function setBox(name, { tone, eyebrow, watts, note }) {
+  $(`card-${name}`).dataset.tone = tone;
+  if (eyebrow) setText(`${name}-eyebrow`, eyebrow);
+  setText(`${name}-watts`, watts ?? 'Not reported');
+  $(`${name}-unit`).hidden = watts == null;
+  setText(`${name}-note`, note);
+}
 
+const share = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+// The three numbers as one sum, in the order that reads naturally for the state.
+function renderSum(terms) {
+  const sum = $('equation');
+  sum.hidden = !terms;
+  if (!terms) return;
+  sum.replaceChildren(
+    ...terms.map((term) => {
+      if (typeof term === 'string') return el('span', 'sum-op', term);
+      const node = el('span', 'sum-term');
+      node.dataset.tone = term.tone;
+      node.append(el('b', null, `${fmtW(term.mw)} W`), el('span', null, term.text));
+      return node;
+    }),
+  );
+}
+
+// One bar divided into its parts: where the power comes from, or where it goes.
+function renderSplit(title, parts) {
+  const split = $('split');
+  split.hidden = !parts;
+  if (!parts) return;
+  const whole = parts.reduce((total, part) => total + Math.abs(part.mw), 0);
+  setText('split-title', title);
+  $('split-bar').replaceChildren(
+    ...parts.map((part) => {
+      const segment = el('span');
+      segment.dataset.tone = part.tone;
+      segment.style.flexGrow = String(Math.max(Math.abs(part.mw), whole * 0.01));
+      return segment;
+    }),
+  );
+  $('split-legend').replaceChildren(
+    ...parts.map((part) => {
+      const li = el('li');
+      li.dataset.tone = part.tone;
+      li.append(
+        el('b', null, `${fmtW(part.mw)} W`),
+        document.createTextNode(`${part.text} (${share(Math.abs(part.mw), whole)}%)`),
+      );
+      return li;
+    }),
+  );
+}
+
+// In one or two plain sentences: what this means for you, and what to do.
+function meaning(s, d) {
+  const eta = d.etaMin != null ? fmtDuration(d.etaMin) : null;
+  switch (d.state) {
+    case 'draining_on_ac':
+      return (
+        'The charger cannot keep up with what the laptop is doing, so the battery fills the gap and goes down even though you are plugged in.' +
+        (eta ? ` At this rate it is empty in about ${eta}.` : '') +
+        ' A stronger charger, or closing the heaviest app below, stops the drain.'
+      );
+    case 'charging':
+      return (
+        'The charger gives more than the laptop needs, and the extra is filling the battery.' +
+        (eta ? ` It will be full in about ${eta}.` : '')
+      );
+    case 'full':
+      return 'The battery is full. The charger is running the laptop on its own.';
+    case 'holding':
+      return `The charger is running the laptop on its own. The battery is being held at ${s.percent}% and left alone, which is normal battery care.`;
+    default:
+      return (
+        'Nothing is plugged in, so the battery is powering everything.' +
+        (eta ? ` At this rate it lasts about ${eta}.` : '')
+      );
+  }
+}
+
+function renderOverview(s) {
+  const d = s.derived;
   $('chip').dataset.severity = d.severity;
-  setText('chip-label', d.label);
   setIcon('chip-icon', STATE_ICON[d.state] ?? 'battery');
   setText('headline', d.headline);
-  setText('detail', d.detail);
 
   const hasEta = d.etaMin != null;
   $('eta').hidden = !hasEta;
   if (hasEta) {
     setText('eta-value', fmtDuration(d.etaMin));
-    setText('eta-label', d.etaKind === 'empty' ? 'until empty' : 'until full');
+    setText('eta-label', d.etaKind === 'empty' ? 'remaining' : 'until full');
   }
   setText('eta-note', etaNote(d));
+  setText('meaning', meaning(s, d));
 
-  // Charger -> laptop
   const plugged = s.externalConnected;
-  const inKnown = s.adapterInMw != null;
-  $('node-charger').dataset.active = String(plugged);
-  setText('charger-name', s.adapter?.watts ? `${s.adapter.watts} W charger` : 'Charger');
-  setText('charger-value', !plugged ? 'Not plugged in' : inKnown ? `giving ${fmtW(s.adapterInMw)} W` : 'Connected');
-  setPipe('pipe-in', {
-    dir: plugged && (!inKnown || s.adapterInMw > 50) ? 'forward' : 'idle',
-    tone: 'in',
-    label: plugged && inKnown ? `${fmtW(s.adapterInMw)} W` : '',
-    mw: s.adapterInMw,
+  const inMw = s.adapterInMw;
+  const loadMw = s.systemLoadMw;
+  const battMw = s.batteryPowerMw;
+  const inKnown = inMw != null;
+  const loadKnown = loadMw != null;
+  // charging | draining | idle. A battery the system is holding still shows a
+  // trickle either way; that counts as resting, to agree with the headline.
+  const resting = d.state === 'holding' || d.state === 'full';
+  const flow = resting ? 'idle' : flowWord(battMw ?? 0);
+  const trickle = resting && Math.abs(battMw ?? 0) >= 50;
+  const rated = s.adapter?.watts;
+  const chargerName = rated ? `${rated} W charger` : 'charger';
+  const atLimit = rated && inKnown && inMw >= rated * 900; // within 10% of the rating
+
+  // 1. Power coming in
+  setBox('charger', {
+    tone: plugged ? 'in' : 'off',
+    eyebrow: plugged ? 'Coming in' : 'No charger',
+    watts: !plugged ? '0' : inKnown ? fmtW(inMw) : null,
+    note: !plugged
+      ? 'Nothing is plugged in.'
+      : inKnown
+        ? `from the ${chargerName}${atLimit ? ', the most it can give' : ''}`
+        : `The ${chargerName} is connected. This system does not report how much it gives.`,
+  });
+  setArrow('pipe-in', {
+    dir: plugged && (!inKnown || inMw > 50) ? 'forward' : 'idle',
+    tone: plugged ? 'in' : 'off',
+    label: plugged && inKnown ? `${fmtW(inMw)} W` : '',
+    note: plugged ? 'charger to laptop' : 'nothing flowing',
+    mw: inMw,
   });
 
-  // Laptop
-  setText('laptop-value', s.systemLoadMw != null ? `using ${fmtW(s.systemLoadMw)} W` : 'In use');
+  // 2. Power being used
+  setBox('laptop', {
+    tone: 'use',
+    watts: loadKnown ? fmtW(loadMw) : null,
+    note: loadKnown
+      ? 'is what the laptop needs right now'
+      : 'This system does not report total use while plugged in.',
+  });
 
-  // Laptop <-> battery
-  const flow = flowWord(s.batteryPowerMw ?? 0);
-  setPipe('pipe-batt', {
+  // 3. The battery: taking power in, giving it out, or resting
+  setArrow('pipe-batt', {
     dir: flow === 'charging' ? 'forward' : flow === 'draining' ? 'reverse' : 'idle',
-    tone: flow === 'charging' ? 'charge' : 'drain',
-    label: flow === 'idle' ? 'Resting' : `${fmtW(s.batteryPowerMw)} W`,
-    mw: s.batteryPowerMw,
+    tone: flow === 'charging' ? 'charge' : flow === 'draining' ? 'drain' : 'idle',
+    label: flow === 'idle' ? '' : `${fmtW(battMw)} W`,
+    note: flow === 'charging' ? 'into the battery' : flow === 'draining' ? 'battery to laptop' : 'nothing flowing',
+    mw: battMw,
+  });
+  setBox('battery', {
+    tone: flow === 'charging' ? 'charge' : flow === 'draining' ? 'drain' : 'idle',
+    eyebrow: flow === 'charging' ? 'Going into battery' : flow === 'draining' ? 'Coming out of battery' : 'Battery resting',
+    watts: battMw == null ? null : flow === 'idle' && !trickle ? '0' : fmtW(battMw),
+    note:
+      flow === 'charging'
+        ? 'is filling the battery'
+        : flow === 'draining'
+          ? plugged
+            ? 'is the gap the battery has to cover'
+            : 'The battery is powering everything.'
+          : trickle
+            ? 'Only a trickle. The battery is resting.'
+            : 'Not charging and not draining.',
   });
 
-  // The battery
   const cell = $('cell');
   cell.style.setProperty('--level', String(Math.max(0, Math.min(100, s.percent ?? 0))));
-  cell.dataset.flow = flow;
   cell.dataset.tone =
-    d.state === 'charging' || d.state === 'full'
+    flow === 'charging' || d.state === 'full'
       ? 'good'
-      : d.state === 'draining_on_ac'
-        ? 'warning'
-        : s.percent <= 10
-          ? 'critical'
-          : s.percent <= 20
-            ? 'warning'
-            : 'accent';
+      : s.percent <= 10
+        ? 'critical'
+        : s.percent <= 20 || d.state === 'draining_on_ac'
+          ? 'warning'
+          : 'accent';
   tween($('percent'), s.percent, (v) => String(Math.round(v)));
-  setText(
-    'charge-mah',
-    s.remainingMah != null && s.fullMah != null ? `${fmtInt(s.remainingMah)} of ${fmtInt(s.fullMah)} mAh` : '',
-  );
   $('scene').setAttribute('aria-label', `${d.headline}. ${d.detail}`);
+
+  // The sum and the split bar need all three figures.
+  if (inKnown && loadKnown && battMw != null) {
+    const charger = { tone: 'in', mw: inMw };
+    const laptop = { tone: 'use', mw: loadMw };
+    if (flow === 'charging') {
+      renderSum([
+        { ...charger, text: 'from charger' }, '−',
+        { ...laptop, text: 'used by laptop' }, '=',
+        { tone: 'charge', mw: battMw, text: 'into battery' },
+      ]);
+      renderSplit(`Where the charger's ${fmtW(inMw)} W goes`, [
+        { ...laptop, text: ' runs the laptop' },
+        { tone: 'charge', mw: battMw, text: ' fills the battery' },
+      ]);
+    } else if (flow === 'draining' && plugged) {
+      renderSum([
+        { ...charger, text: 'from charger' }, '+',
+        { tone: 'drain', mw: battMw, text: 'from battery' }, '=',
+        { ...laptop, text: 'used by laptop' },
+      ]);
+      renderSplit(`Where the laptop's ${fmtW(loadMw)} W comes from`, [
+        { ...charger, text: ' from the charger' },
+        { tone: 'drain', mw: battMw, text: ' from the battery' },
+      ]);
+    } else if (flow === 'draining') {
+      renderSum([{ tone: 'drain', mw: battMw, text: 'from battery' }, '=', { ...laptop, text: 'used by laptop' }]);
+      renderSplit(`Where the laptop's ${fmtW(loadMw)} W comes from`, [
+        { tone: 'drain', mw: battMw, text: ' from the battery' },
+      ]);
+    } else {
+      // The two figures are measured separately, so they match only roughly.
+      renderSum([{ ...charger, text: 'from charger' }, '≈', { ...laptop, text: 'used by laptop' }]);
+      renderSplit(`Where the charger's ${fmtW(inMw)} W goes`, [{ ...charger, text: ' runs the laptop' }]);
+    }
+  } else {
+    renderSum(null);
+    renderSplit(null, null);
+  }
+
+  // Details
+  setText(
+    'row-charger',
+    !plugged
+      ? 'Not connected'
+      : !rated
+        ? 'Connected'
+        : inKnown
+          ? `${rated} W maximum · giving ${fmtW(inMw)} W now (${share(inMw, rated * 1000)}% of its limit)`
+          : `${rated} W maximum`,
+  );
+  setText(
+    'row-charge',
+    s.remainingMah != null && s.fullMah != null
+      ? `${s.percent}% · ${fmtInt(s.remainingMah)} of ${fmtInt(s.fullMah)} mAh`
+      : `${s.percent}%`,
+  );
+  setText('row-time-label', d.etaKind === 'full' ? 'Time until full' : 'Time remaining');
+  setText(
+    'row-time',
+    hasEta ? fmtDuration(d.etaMin) : d.state === 'full' ? 'Fully charged' : d.state === 'holding' ? 'Not charging' : '–',
+  );
 }
 
 // Sounds for the moments worth hearing: plugging in, unplugging, reaching full.
@@ -145,134 +341,69 @@ function playChangeSounds(s) {
   else if (before.state !== 'full' && now.state === 'full') sfx.full();
 }
 
-// ---------- stat tiles ----------
+// ---------- health ----------
 
-const TILES = ['health', 'cycles', 'voltage', 'extra'];
-const tiles = {};
-
-function buildTiles() {
-  $('details').replaceChildren(
-    ...TILES.map((key, i) => {
-      const card = el('div', 'card tile reveal');
-      card.style.setProperty('--i', String(8 + i));
-      const badge = el('span', 'title-icon');
-      const glyph = icon('battery');
-      badge.append(glyph);
-      const label = el('span', 'tile-label');
-      const head = el('div', 'tile-head');
-      head.append(badge, label);
-
-      const value = el('div', 'tile-value', '–');
-      const ring = svgEl('svg', { class: 'ring', viewBox: '0 0 44 44', 'aria-hidden': 'true' });
-      // pathLength=100 lets the dash offset be a plain percentage.
-      const fill = svgEl('circle', { class: 'ring-fill', cx: 22, cy: 22, r: 18, pathLength: 100 });
-      ring.append(svgEl('circle', { class: 'ring-track', cx: 22, cy: 22, r: 18 }), fill);
-      const main = el('div', 'tile-main');
-      main.append(value, ring);
-
-      const sub = el('div', 'tile-sub');
-      const sparkHost = el('div');
-      const note = el('div', 'tile-note');
-      card.append(head, main, sub, sparkHost, note);
-      tiles[key] = { card, badge, use: glyph.firstChild, label, value, ring, fill, sub, sparkHost, note };
-      return card;
-    }),
-  );
-}
-
-function setTile(key, { iconName, tint, label, value, sub = '', note = '', share = null, hint = '' }) {
-  const t = tiles[key];
-  t.use.setAttribute('href', `#i-${iconName}`);
-  t.badge.className = `title-icon tint-${tint}`;
-  t.ring.setAttribute('class', `ring tint-${tint}`);
-  t.ring.style.visibility = share == null ? 'hidden' : 'visible';
-  if (share != null) t.fill.style.strokeDashoffset = String(100 - Math.max(0, Math.min(100, share)));
-  t.card.title = hint;
-  for (const [node, text] of [[t.label, label], [t.value, value], [t.sub, sub], [t.note, note]]) {
-    if (node.textContent !== text) node.textContent = text;
-  }
+function setMeter(id, share, tone) {
+  const meter = $(id);
+  meter.hidden = share == null;
+  if (share == null) return;
+  if (tone) meter.dataset.tone = tone;
+  meter.firstChild.style.width = `${Math.max(0, Math.min(100, share))}%`;
 }
 
 function healthNote() {
   const h = state.health;
   if (!h) return '';
   if (h.trend === 'fading') {
-    const when = new Date(`${h.projection.date}T00:00:00`).toLocaleDateString([], { month: 'short', year: 'numeric' });
-    return `Losing about ${h.lossPerMonthPercent}% a month. On this trend, ${h.projection.targetPercent}% around ${when}.`;
+    const when = new Date(`${h.projection.date}T00:00:00`).toLocaleDateString([], { month: 'long', year: 'numeric' });
+    return `Losing about ${h.lossPerMonthPercent}% a month. On this trend it reaches ${h.projection.targetPercent}% around ${when}.`;
   }
   if (h.trend === 'steady') return `Holding steady over the last ${Math.round(h.spanDays)} days.`;
-  return `Trend shows after ${h.minSpanDays} days of readings (${h.daysRecorded} so far).`;
+  return `A trend appears after ${h.minSpanDays} days of readings. ${h.daysRecorded} recorded so far.`;
 }
 
-function renderDetails(s) {
+function renderHealth(s) {
   const health = s.fullMah && s.designMah ? Math.round((s.fullMah / s.designMah) * 100) : null;
-  setTile('health', {
-    iconName: 'heart',
-    tint: health == null ? 'neutral' : health >= 80 ? 'good' : health >= 60 ? 'yellow' : 'critical',
-    label: 'Battery health',
-    value: health != null ? `${health}%` : 'Not reported',
-    sub: health != null ? `${fmtInt(s.fullMah)} of ${fmtInt(s.designMah)} mAh when new` : '',
-    note: health != null ? healthNote() : '',
-    share: health,
-    hint: 'How much charge the battery can hold now, compared with when it was new.',
-  });
+  setText('h-health', health != null ? `${health}%` : 'Not reported');
+  setMeter('h-health-meter', health, health == null ? null : health >= 80 ? 'good' : health >= 60 ? 'warn' : 'bad');
+  setText(
+    'h-capacity',
+    s.fullMah != null ? `${fmtInt(s.fullMah)} mAh${s.designMah ? ` of ${fmtInt(s.designMah)} when new` : ''}` : 'Not reported',
+  );
 
   const rated = s.designCycles;
-  setTile('cycles', {
-    iconName: 'cycle',
-    tint: 'blue',
-    label: 'Charge cycles',
-    value: s.cycleCount != null ? fmtInt(s.cycleCount) : 'Not reported',
-    sub: s.cycleCount == null ? '' : rated ? `of ${fmtInt(rated)} it is rated for` : 'Full charges used so far',
-    share: s.cycleCount != null && rated ? (s.cycleCount / rated) * 100 : null,
-    hint: 'One cycle is a full 100% of charge used, even if spread over several top-ups.',
-  });
+  setText(
+    'h-cycles',
+    s.cycleCount == null ? 'Not reported' : rated ? `${fmtInt(s.cycleCount)} of ${fmtInt(rated)}` : fmtInt(s.cycleCount),
+  );
+  setMeter('h-cycles-meter', s.cycleCount != null && rated ? (s.cycleCount / rated) * 100 : null);
+  setText('h-trend', health != null ? healthNote() : '');
 
-  setTile('voltage', {
-    iconName: 'pulse',
-    tint: 'violet',
-    label: 'Battery voltage',
-    value: s.voltageMv != null ? `${(s.voltageMv / 1000).toFixed(2)} V` : 'Not reported',
-    sub: s.amperageMa != null ? `${fmtInt(Math.abs(s.amperageMa))} mA ${s.amperageMa < 0 ? 'flowing out' : 'flowing in'}` : '',
-    hint: 'The electrical pressure of the battery pack. It rises as the battery fills.',
-  });
-
-  if (s.tempC != null) {
-    setTile('extra', {
-      iconName: 'thermo',
-      tint: s.tempC >= 40 ? 'critical' : 'orange',
-      label: 'Battery temperature',
-      value: `${s.tempC.toFixed(1)} °C`,
-      sub: s.tempC >= 40 ? 'Running hot' : 'Normal range',
-      hint: 'Batteries age faster when they stay hot.',
-    });
-  } else {
-    setTile('extra', {
-      iconName: 'plug',
-      tint: 'aqua',
-      label: 'Charger',
-      value: s.adapter ? (s.adapter.watts ? `${s.adapter.watts} W` : 'Connected') : 'Unplugged',
-      sub: s.adapter ? (s.adapter.name ?? 'Power adapter') : 'Running on battery',
-      hint: 'The most power this charger can deliver.',
-    });
-  }
+  setText('h-voltage', s.voltageMv != null ? `${(s.voltageMv / 1000).toFixed(2)} V` : 'Not reported');
+  setText(
+    'h-current',
+    s.amperageMa != null ? `${fmtInt(Math.abs(s.amperageMa))} mA ${s.amperageMa < 0 ? 'out' : 'in'}` : 'Not reported',
+  );
+  $('h-temp-row').hidden = s.tempC == null;
+  if (s.tempC != null) setText('h-temp', `${s.tempC.toFixed(1)} °C`);
+  setText(
+    'h-charger',
+    s.adapter
+      ? [s.adapter.watts ? `${s.adapter.watts} W` : 'Connected', s.adapter.name].filter(Boolean).join(' · ')
+      : 'Not connected',
+  );
 }
 
-// Tiny trend line for the health tile, in the de-emphasis color.
+// Trend line of daily capacity, shown once there are a few days to draw.
 function sparkline(values) {
-  const w = 120;
-  const h = 28;
+  const w = 320;
+  const h = 36;
   const min = Math.min(...values);
   const span = Math.max(0.5, Math.max(...values) - min);
-  const px = (i) => 3 + (i / (values.length - 1)) * (w - 6);
+  const px = (i) => 2 + (i / (values.length - 1)) * (w - 4);
   const py = (v) => h - 4 - ((v - min) / span) * (h - 8);
-  const svg = svgEl('svg', { class: 'spark', viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
-  svg.append(
-    svgEl('path', {
-      d: `M${values.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join('L')}`,
-      'vector-effect': 'non-scaling-stroke',
-    }),
-  );
+  const svg = svgEl('svg', { class: 'spark', viewBox: `0 0 ${w} ${h}`, 'aria-hidden': 'true' });
+  svg.append(svgEl('path', { d: `M${values.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join('L')}` }));
   return svg;
 }
 
@@ -280,55 +411,62 @@ async function loadHealth() {
   try {
     state.health = await getJson('/api/health');
     const days = state.health.days;
-    tiles.health.sparkHost.replaceChildren(...(days.length >= 3 ? [sparkline(days.map((d) => d.percent))] : []));
-    if (state.latest) renderDetails(state.latest);
+    $('h-spark').replaceChildren(...(days.length >= 3 ? [sparkline(days.map((d) => d.percent))] : []));
+    if (state.latest) renderHealth(state.latest);
   } catch (err) {
     console.warn('Could not load health trend:', err.message);
   }
 }
 
-// ---------- energy use ----------
+// ---------- energy ----------
 
+// Rows are updated in place so the bars glide to their new widths.
+function renderEnergyList(list, empty, data) {
+  const isEnergy = data.metric === 'energy';
+  const max = Math.max(1, ...data.apps.map((a) => a.power));
+  while (list.children.length > data.apps.length) list.lastChild.remove();
+  data.apps.forEach((app, i) => {
+    let li = list.children[i];
+    if (!li) {
+      li = el('li');
+      const track = el('span', 'bar-track');
+      const bar = el('span', 'bar');
+      bar.style.width = '0%';
+      track.append(bar);
+      li.append(el('span', 'name'), track, el('span', 'val'));
+      list.append(li);
+      li.getBoundingClientRect(); // lay out at 0% first, so the first width animates too
+    }
+    li.children[0].textContent = `${i + 1}. ${app.name}`;
+    li.children[1].firstChild.style.width = `${(app.power / max) * 100}%`;
+    li.children[2].textContent = isEnergy ? app.power.toFixed(1) : `${Math.round(app.power)}%`;
+  });
+  empty.hidden = data.apps.length > 0;
+  empty.textContent = 'Nothing is working hard right now.';
+}
+
+// The top five show on Overview and on Energy; both read the same measurement.
 async function loadEnergy() {
-  if (document.hidden) return;
-  const empty = $('energy-empty');
-  const list = $('energy');
+  if (document.hidden || (state.view !== 'energy' && state.view !== 'overview')) return;
+  const lists = [
+    [$('energy-top'), $('energy-top-empty')],
+    [$('energy'), $('energy-empty')],
+  ];
   try {
     const data = await getJson('/api/energy');
-    const isEnergy = data.metric === 'energy';
-    setText(
-      'energy-sub',
-      isEnergy
-        ? 'Energy impact of each app right now, the same figure Activity Monitor shows.'
-        : 'Share of the processor each app is using right now, the closest stand-in for energy on this system.',
-    );
-    const max = Math.max(1, ...data.apps.map((a) => a.power));
-    // Rows are updated in place so the bars glide to their new widths.
-    while (list.children.length > data.apps.length) list.lastChild.remove();
-    data.apps.forEach((app, i) => {
-      let li = list.children[i];
-      if (!li) {
-        li = el('li');
-        const track = el('span', 'bar-track');
-        const bar = el('span', 'bar');
-        bar.style.width = '0%';
-        track.append(bar);
-        li.append(el('span', 'name'), el('span', 'val'), track);
-        list.append(li);
-        li.getBoundingClientRect(); // lay out at 0% first, so the first width animates too
-      }
-      const value = isEnergy ? app.power.toFixed(1) : `${Math.round(app.power)}%`;
-      li.children[0].textContent = app.name;
-      li.children[1].textContent = value;
-      li.children[2].firstChild.style.width = `${(app.power / max) * 100}%`;
-      li.title = `${app.name}: ${isEnergy ? 'energy impact' : 'processor use'} ${value}`;
-    });
-    empty.hidden = data.apps.length > 0;
-    empty.textContent = 'Nothing is working hard right now.';
+    for (const [list, empty] of lists) renderEnergyList(list, empty, data);
+    const explain =
+      data.metric === 'energy'
+        ? 'Ranked by energy impact, the same figure Activity Monitor shows. A higher number uses more battery.'
+        : 'Ranked by share of the processor in use, the closest stand-in for energy use on this system.';
+    setText('energy-sub', explain);
+    setText('energy-top-sub', `${explain} Quitting the app at the top saves the most.`);
   } catch {
-    list.replaceChildren();
-    empty.hidden = false;
-    empty.textContent = 'Could not measure app activity.';
+    for (const [list, empty] of lists) {
+      list.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = 'Could not measure app activity.';
+    }
   }
 }
 
@@ -359,17 +497,15 @@ function renderNotifySetting({ notifications, notificationsAvailable }) {
   toggle.disabled = !notificationsAvailable;
   setText(
     'alerts-sub',
-    !notificationsAvailable
-      ? 'Recorded here only. Notifications are switched off for this copy of the app.'
-      : notifications
-        ? 'Recorded here and sent as desktop notifications.'
-        : 'Recorded here only. Desktop notifications are off.',
+    notificationsAvailable
+      ? 'Alerts are always listed here. Turn this on to also get them as notifications.'
+      : 'Notifications are switched off for this copy of the app. Alerts are still listed here.',
   );
 }
 
 async function loadAlerts() {
   try {
-    const data = await getJson('/api/alerts');
+    const data = await getJson(`/api/alerts?limit=${MAX_ALERTS_SHOWN}`);
     state.alerts = data.alerts;
     renderNotifySetting(data);
     renderAlerts();
@@ -382,7 +518,6 @@ function wireNotifyToggle() {
   const toggle = $('notify-toggle');
   toggle.addEventListener('change', async () => {
     const wanted = toggle.checked;
-    sfx.tick();
     try {
       renderNotifySetting(
         await getJson('/api/settings', {
@@ -398,13 +533,12 @@ function wireNotifyToggle() {
   });
 }
 
-// ---------- AI summary ----------
+// ---------- summary ----------
 
 function renderSummary(summary, note) {
-  const text = $('summary-text');
-  text.hidden = !summary;
+  $('summary-group').hidden = !summary;
   if (summary) {
-    text.replaceChildren(...summary.text.split(/\n\s*\n/).map((p) => el('p', null, p.trim())));
+    $('summary-text').replaceChildren(...summary.text.split(/\n\s*\n/).map((p) => el('p', null, p.trim())));
   }
   const message =
     note ??
@@ -412,10 +546,10 @@ function renderSummary(summary, note) {
       ? `Written ${fmtDayClock(summary.ts)} by ${summary.model}.`
       : state.summaryReady
         ? ''
-        : 'To switch this on, run "battery-speed key" in a terminal and paste a Claude API key.');
+        : 'Not set up yet. Run "battery-speed key" in Terminal and paste a Claude API key.');
   $('summary-note').hidden = !message;
   $('summary-note').textContent = message;
-  $('summary-button').textContent = summary ? 'Write a new summary' : 'Write summary';
+  $('summary-button').textContent = summary ? 'Write Again' : 'Write Summary';
 }
 
 async function loadSummary() {
@@ -432,9 +566,7 @@ async function loadSummary() {
 function wireSummary() {
   const button = $('summary-button');
   button.addEventListener('click', async () => {
-    sfx.tick();
     button.disabled = true;
-    button.classList.add('busy');
     button.textContent = 'Writing…';
     try {
       const res = await fetch('/api/summary', { method: 'POST' });
@@ -442,13 +574,12 @@ function wireSummary() {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       state.summary = data.summary;
       renderSummary(state.summary);
-      sfx.sparkle();
+      sfx.done();
     } catch (err) {
       // Keep any earlier summary on screen and say why the new one failed.
       renderSummary(state.summary, err.message);
     } finally {
       button.disabled = false;
-      button.classList.remove('busy');
     }
   });
 }
@@ -472,7 +603,7 @@ async function loadHistory({ fresh = false } = {}) {
     setText(
       'history-note',
       data.count
-        ? `${fmtInt(data.count)} ${data.count === 1 ? 'reading' : 'readings'} saved since ${fmtDayClock(data.since)}.`
+        ? `${fmtInt(data.count)} ${data.count === 1 ? 'reading' : 'readings'} saved on this computer since ${fmtDayClock(data.since)}.`
         : '',
     );
   } catch (err) {
@@ -493,14 +624,13 @@ function appendLive(s) {
   while (chart.history.length && chart.history[0].ts < cutoff) chart.history.shift();
 }
 
-function wireFilters() {
-  const buttons = document.querySelectorAll('.filters button');
+function wireRange() {
+  const buttons = document.querySelectorAll('#range button');
   for (const b of buttons) {
     b.addEventListener('click', () => {
       chart.windowMin = Number(b.dataset.window);
       for (const o of buttons) o.setAttribute('aria-pressed', String(o === b));
       chart.hoverTs = null;
-      sfx.sweep();
       loadHistory({ fresh: true });
     });
   }
@@ -512,7 +642,7 @@ function wireSound() {
   const button = $('sound-toggle');
   const show = () => {
     button.setAttribute('aria-pressed', String(sfx.enabled));
-    button.title = sfx.enabled ? 'Sound effects are on. Click to mute.' : 'Sound effects are off. Click to turn on.';
+    button.title = sfx.enabled ? 'Sounds are on' : 'Sounds are off';
     setIcon('sound-icon', sfx.enabled ? 'sound-on' : 'sound-off');
   };
   button.addEventListener('click', () => {
@@ -529,14 +659,14 @@ function setConnection(kind) {
 
 function setFault(fault) {
   $('fault').hidden = !fault;
-  if (fault) $('fault').textContent = `Could not read the battery: ${fault.message}`;
+  if (fault) $('fault').textContent = `Could not read the battery. ${fault.message}`;
 }
 
 function onSample(s) {
   state.latest = s;
   chart.now = s.ts;
-  renderHero(s);
-  renderDetails(s);
+  renderOverview(s);
+  renderHealth(s);
   playChangeSounds(s);
 }
 
@@ -544,12 +674,7 @@ function connect() {
   const es = new EventSource('/events');
   es.addEventListener('init', (e) => {
     const d = JSON.parse(e.data);
-    state.meta = d.meta;
-    if (d.meta) {
-      $('platform').hidden = false;
-      setText('platform', d.meta.platform);
-      setText('version', `Version ${d.meta.version}.`);
-    }
+    if (d.meta) setText('version', `Battery Speed ${d.meta.version} on ${d.meta.platform}`);
     if (d.latest) onSample(d.latest);
     setConnection('live');
     setFault(d.fault);
@@ -565,25 +690,28 @@ function connect() {
     appendLive(s);
     setConnection('live');
     setFault(null);
-    renderCharts();
+    if (state.view === 'history') renderCharts();
   });
   es.addEventListener('alert', (e) => {
     const alert = JSON.parse(e.data);
     state.freshAlertId = alert.id;
     state.alerts = [alert, ...state.alerts].slice(0, MAX_ALERTS_SHOWN);
     renderAlerts();
+    if (state.view !== 'alerts') $('alerts-badge').hidden = false;
     sfx.alert(alert.severity);
   });
   es.addEventListener('fault', (e) => setFault(JSON.parse(e.data)));
   es.onerror = () => setConnection('lost');
 }
 
-// Stagger the entrance: each card rises a beat after the one before.
-document.querySelectorAll('.reveal').forEach((node, i) => node.style.setProperty('--i', String(i)));
+// Inside the Mac app, behave like one: no web page context menu.
+if (document.documentElement.classList.contains('in-app')) {
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+}
 
-buildTiles();
+wireNavigation();
 wireCharts();
-wireFilters();
+wireRange();
 wireNotifyToggle();
 wireSummary();
 wireSound();

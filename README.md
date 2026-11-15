@@ -14,6 +14,8 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
 - **Battery health.** Capacity compared with new, cycle count, and the trend.
 - **A real Mac app.** On macOS it installs into Applications, with its own
   window, a Dock icon while open, and a live readout in the menu bar.
+- **A screen saver for the locked screen.** Charge, state and time left on a
+  black screen, redrawn twice a minute so it costs next to nothing.
 - **Private.** Everything stays on your computer. The one exception is the
   optional AI summary, which only runs when you press its button.
 
@@ -59,6 +61,7 @@ battery-speed uninstall    Remove start-at-login and stop the background copy
 battery-speed status       Is it running? Current reading, data folder
 battery-speed open         Open the dashboard
 battery-speed key          Save a Claude API key for the AI summary
+battery-speed screensaver  macOS: open settings to choose the screen saver
 ```
 
 `--port <n>` runs on another port. Uninstalling keeps your saved history.
@@ -78,6 +81,7 @@ adapts and never shows a number it does not have.
 | Per-app ranking                      | energy impact | energy impact | CPU use | CPU use |
 | Cycle count                          | yes | yes | most laptops | most laptops |
 | App window and menu bar readout      | yes | yes | no  | no  |
+| Screen saver for the locked screen   | yes | yes | no  | no  |
 
 Where "watts from the charger" is not available, the power chart shows what
 flows into and out of the battery instead.
@@ -86,6 +90,21 @@ The Windows and Linux readers are covered by automated tests against
 representative data, but have not yet been run on real Windows or Linux
 hardware. If something looks wrong there, `battery-speed status` and the log
 in the data folder are the places to look.
+
+## Screen saver and the locked screen (macOS)
+
+`battery-speed install` puts a **Battery Speed** screen saver in your Screen
+Savers folder. Choose it in System Settings > Screen Saver, or run
+`battery-speed screensaver` to open that page.
+
+macOS does not let apps add their own content to the lock screen, but it does
+show the screen saver there. With this saver selected, a locked or idle Mac
+shows the charge, whether it is charging, and the time left.
+
+It is built to use very little power: a black background, dim text, nothing
+that animates, and one redraw every 30 seconds. The text moves to a new spot on
+each redraw to avoid burn-in. It reads the battery from the system directly, so
+it works even when the collector is not running.
 
 ## The AI summary (optional)
 
@@ -116,10 +135,12 @@ npm install
 npm test                 # platform parsing tests
 npm start                # run and open the dashboard
 npm run build:menubar    # rebuild the macOS app and its icon (needs Xcode)
+npm run build:screensaver  # rebuild the macOS screen saver (needs Xcode)
 ```
 
-`BATTERY_SIMULATE=limited` makes a Mac report only what Windows and Linux can,
-which is how the reduced dashboard is checked.
+`BATTERY_SIMULATE` reshapes the live reading for testing: `limited` (only what
+Windows and Linux report), `charging`, or `draining`. `limited` is how the
+reduced dashboard is checked.
 
 ## License
 

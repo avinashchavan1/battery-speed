@@ -47,21 +47,41 @@ export async function readBattery() {
   }
   reader ??= await platform.load();
   const sample = await reader.read();
-  return process.env.BATTERY_SIMULATE === 'limited' ? asLimitedSystem(sample) : sample;
+  const mode = process.env.BATTERY_SIMULATE;
+  return mode && SIMULATIONS[mode] ? SIMULATIONS[mode](sample) : sample;
 }
 
-// Development aid: BATTERY_SIMULATE=limited makes this machine report only what
-// Windows, Linux and Intel Macs can, to check the dashboard copes without the rest.
-function asLimitedSystem(s) {
+// Development aid. BATTERY_SIMULATE reshapes this machine's real reading so
+// every dashboard state can be checked without waiting for it to happen:
+//   limited   only what Windows, Linux and Intel Macs report
+//   charging  a strong charger with power to spare
+//   draining  a weak charger that cannot keep up
+const plugged = (s, watts, inMw, loadMw) => {
+  const batteryPowerMw = inMw - loadMw;
   return {
+    ...s,
+    externalConnected: true,
+    isCharging: batteryPowerMw > 0,
+    fullyCharged: false,
+    adapter: { watts, voltageMv: 20_000, currentMa: (watts * 1000) / 20, name: 'pd charger', wireless: false },
+    adapterInMw: inMw,
+    systemLoadMw: loadMw,
+    batteryPowerMw,
+    amperageMa: Math.round((batteryPowerMw / (s.voltageMv ?? 11_400)) * 1000),
+  };
+};
+const SIMULATIONS = {
+  limited: (s) => ({
     ...s,
     adapterInMw: s.externalConnected ? null : 0,
     systemLoadMw: s.externalConnected ? null : s.batteryPowerMw != null ? -s.batteryPowerMw : null,
     adapter: s.adapter && { ...s.adapter, watts: null, voltageMv: null, currentMa: null, name: null },
     designCycles: null,
     gauge: { toEmptyMin: null, toFullMin: null },
-  };
-}
+  }),
+  charging: (s) => plugged(s, 96, 83_000, 60_000),
+  draining: (s) => plugged(s, 45, 43_000, 56_100),
+};
 
 // `npm run sample` prints one reading, handy for checking the collector alone.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

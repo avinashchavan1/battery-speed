@@ -59,12 +59,8 @@ export const sfx = {
     else if (severity === 'critical') sequence([880, 880, 880], 0.16, { dur: 0.11, type: 'triangle', gain: 0.09 });
     else sequence([740, 587.33], 0.13, { dur: 0.16, type: 'triangle' });
   },
-  /** Buttons and toggles. */
-  tick: () => note({ freq: 1400, to: 900, dur: 0.045, gain: 0.035 }),
-  /** Range switch: a quick upward sweep. */
-  sweep: () => note({ freq: 320, to: 760, dur: 0.14, gain: 0.04 }),
-  /** The AI summary arriving. */
-  sparkle: () => sequence([1046.5, 1318.5, 1568], 0.06, { dur: 0.18, gain: 0.045 }),
+  /** A finished task, such as the summary arriving. */
+  done: () => sequence([783.99, 1046.5], 0.08, { dur: 0.16, gain: 0.045 }),
 
   get enabled() {
     return enabled;
@@ -78,7 +74,7 @@ export const sfx = {
     }
     if (on) {
       unlock();
-      this.tick();
+      this.done(); // confirms sound is on
     }
   },
 };

@@ -155,31 +155,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let config = WKWebViewConfiguration()
         // The page's sound effects are deliberate; do not require a click per sound.
         config.mediaTypesRequiringUserActionForPlayback = []
+        // The page checks for this name to know it is inside the app window.
+        config.applicationNameForUserAgent = "BatterySpeedApp/1"
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
-        web.setValue(false, forKey: "drawsBackground") // no white flash before the page paints
+        web.setValue(false, forKey: "drawsBackground") // lets the sidebar material show through
+        web.allowsMagnification = false
+
+        // The system sidebar material fills the window; the page paints its
+        // content pane over it and leaves the sidebar area clear.
+        let material = NSVisualEffectView()
+        material.material = .sidebar
+        material.blendingMode = .behindWindow
+        material.state = .followsWindowActiveState
+        web.frame = material.bounds
+        web.autoresizingMask = [.width, .height]
+        material.addSubview(web)
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 860),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         win.title = "Battery Speed"
-        win.titleVisibility = .hidden // the page has its own title
-        win.titlebarAppearsTransparent = true
-        // Matches the page background in light and dark, so the title bar blends in.
-        win.backgroundColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(srgbRed: 0.043, green: 0.043, blue: 0.047, alpha: 1)
-                : NSColor(srgbRed: 0.957, green: 0.957, blue: 0.945, alpha: 1)
-        }
-        win.minSize = NSSize(width: 400, height: 560)
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true // window controls sit over the sidebar
+        win.minSize = NSSize(width: 680, height: 460)
         win.isReleasedWhenClosed = false
         win.delegate = self
-        win.contentView = web
+        win.contentView = material
         win.center()
-        win.setFrameAutosaveName("BatterySpeedDashboard") // remember size and position
+        win.setFrameAutosaveName("BatterySpeedMain") // remember size and position
 
         window = win
         webView = web
@@ -216,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         reportedDashboard = true
         // One line in the log confirming the dashboard really rendered in the window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            let script = "document.title + ' | ' + (document.getElementById('percent')?.textContent ?? '?') + '% | ' + (document.getElementById('headline')?.textContent ?? '?')"
+            let script = "document.title + ' | ' + (document.getElementById('percent')?.textContent ?? '?') + '% | ' + (document.getElementById('headline')?.textContent ?? '?') + ' | native chrome: ' + document.documentElement.classList.contains('in-app')"
             self?.webView?.evaluateJavaScript(script) { result, _ in
                 NSLog("dashboard window loaded: %@", (result as? String) ?? "no result")
             }

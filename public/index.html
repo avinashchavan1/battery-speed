@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Battery Speed</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231a1a19'/%3E%3Cpath d='M13 3 5 14h6l-1 7 9-12h-6l1-6z' fill='%230ca30c'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231a1a19'/%3E%3Cpath d='M13 3 5 14h6l-1 7 9-12h-6l1-6z' fill='%2330d158'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Inside the Mac app the window supplies the sidebar material and title bar.
+    if (navigator.userAgent.includes('BatterySpeedApp')) document.documentElement.classList.add('in-app');
+  </script>
 </head>
 <body data-state="unknown">
   <!-- Icon sprite: one shared set, drawn with the text color. -->
@@ -15,13 +19,9 @@
       <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v10H4V6a1 1 0 0 1 1-1zM2 19h20"/></symbol>
       <symbol id="i-battery" viewBox="0 0 24 24"><path d="M3 8h15a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM22 11v2M5.500 11v2M8.500 11v2"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
-      <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"/></symbol>
       <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.300a4.300 4.300 0 0 1 7.500 2.500C19.500 15.400 12 20 12 20z"/></symbol>
-      <symbol id="i-cycle" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.300-4.300L4 9M4 4v5h5M4 13a8 8 0 0 0 14.300 4.300L20 15M20 20v-5h-5"/></symbol>
-      <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h4l3-8 4 16 3-8h6"/></symbol>
-      <symbol id="i-thermo" viewBox="0 0 24 24"><path d="M12 3a2 2 0 0 1 2 2v9.500a4 4 0 1 1-4 0V5a2 2 0 0 1 2-2zM12 9v8"/></symbol>
       <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4l2-2zM10 21a2 2 0 0 0 4 0"/></symbol>
-      <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3l1.900 5.100L18 10l-5.100 1.900L11 17l-1.900-5.100L4 10l5.100-1.900L11 3zM19 15l.900 2.100L22 18l-2.100.900L19 21l-.900-2.100L16 18l2.100-.900L19 15z"/></symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5"/></symbol>
       <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></symbol>
       <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 5v14h16M8 15l3-4 3 2 5-6"/></symbol>
       <symbol id="i-sound-on" viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6M18.500 6.500a8 8 0 0 1 0 11"/></symbol>
@@ -32,203 +32,253 @@
     </defs>
   </svg>
 
-  <main class="page">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-bolt"/></svg></span>
-        <h1>Battery Speed</h1>
-        <span class="platform" id="platform" hidden></span>
-      </div>
-      <div class="topbar-right">
-        <button type="button" class="icon-button" id="sound-toggle" aria-pressed="true" title="Sound effects">
-          <svg class="icon" aria-hidden="true"><use id="sound-icon" href="#i-sound-on"/></svg>
-          <span class="sr-only">Sound effects</span>
-        </button>
+  <div class="app">
+    <nav class="sidebar" aria-label="Sections">
+      <div class="sidebar-title">Battery Speed</div>
+      <ul class="nav" id="nav">
+        <li><a href="#overview" data-view="overview"><svg class="icon" aria-hidden="true"><use href="#i-battery"/></svg>Overview</a></li>
+        <li><a href="#history" data-view="history"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>History</a></li>
+        <li><a href="#energy" data-view="energy"><svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg>Energy</a></li>
+        <li><a href="#alerts" data-view="alerts"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Alerts<span class="nav-badge" id="alerts-badge" hidden></span></a></li>
+        <li><a href="#health" data-view="health"><svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg>Health</a></li>
+        <li><a href="#summary" data-view="summary"><svg class="icon" aria-hidden="true"><use href="#i-doc"/></svg>Summary</a></li>
+      </ul>
+      <div class="sidebar-foot">
         <div class="conn" id="conn" data-state="connecting">
           <span class="conn-dot" aria-hidden="true"></span>
           <span id="conn-text">Connecting…</span>
         </div>
+        <button type="button" class="icon-button" id="sound-toggle" aria-pressed="true" title="Sounds">
+          <svg class="icon" aria-hidden="true"><use id="sound-icon" href="#i-sound-on"/></svg>
+          <span class="sr-only">Sounds</span>
+        </button>
       </div>
-    </header>
+    </nav>
 
-    <div class="banner" id="fault" role="alert" hidden></div>
+    <main class="content" id="content">
+      <div class="banner" id="fault" role="alert" hidden></div>
 
-    <!-- Hero: what is happening right now, as a picture. -->
-    <section class="card hero reveal" aria-live="polite">
-      <div class="hero-top">
-        <div class="chip" id="chip" data-severity="neutral">
-          <svg class="icon" aria-hidden="true"><use id="chip-icon" href="#i-battery"/></svg>
-          <span id="chip-label">Waiting for data</span>
-        </div>
-        <div class="eta" id="eta" hidden>
-          <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-          <span class="eta-value" id="eta-value"></span>
-          <span class="eta-label" id="eta-label"></span>
-        </div>
-      </div>
-      <h2 id="headline">Reading the battery…</h2>
-      <p class="hero-detail" id="detail"></p>
+      <!-- Overview -->
+      <section class="view" id="view-overview" aria-labelledby="t-overview">
+        <h1 id="t-overview">Overview</h1>
 
-      <div class="scene" id="scene" role="img" aria-label="Power flow between charger, laptop and battery">
-        <div class="node" id="node-charger" data-active="false">
-          <div class="node-disc"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg></div>
-          <div class="node-name" id="charger-name">Charger</div>
-          <div class="node-value" id="charger-value">–</div>
-        </div>
+        <div class="group" aria-live="polite">
+          <div class="status">
+            <span class="state" id="chip" data-severity="neutral">
+              <svg class="icon" aria-hidden="true"><use id="chip-icon" href="#i-battery"/></svg>
+            </span>
+            <span class="status-headline" id="headline">Reading the battery…</span>
+            <span class="status-eta" id="eta" hidden><span id="eta-value"></span> <span class="muted" id="eta-label"></span></span>
+          </div>
 
-        <div class="pipe" id="pipe-in" data-dir="idle">
-          <span class="pipe-label" id="pipe-in-label"></span>
-          <span class="pipe-track"></span>
-        </div>
+          <!-- Three boxes, left to right: power coming in, power being used, the battery. -->
+          <div class="flow" id="scene" role="img" aria-label="Power flow between charger, laptop and battery">
+            <div class="fcard" id="card-charger" data-tone="in">
+              <div class="fcard-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg><span id="charger-eyebrow">Coming in</span></div>
+              <div class="fcard-value"><span id="charger-watts">–</span><span class="unit" id="charger-unit"> W</span></div>
+              <div class="fcard-note" id="charger-note"></div>
+            </div>
 
-        <div class="node" id="node-laptop" data-active="true">
-          <div class="node-disc"><svg class="icon" aria-hidden="true"><use href="#i-laptop"/></svg></div>
-          <div class="node-name">Laptop</div>
-          <div class="node-value" id="laptop-value">–</div>
-        </div>
+            <div class="arrow" id="pipe-in" data-dir="idle" data-tone="in" aria-hidden="true">
+              <span class="arrow-label" id="pipe-in-label"></span>
+              <span class="arrow-line">
+                <svg class="arrow-head head-back" viewBox="0 0 10 14"><path d="M9 1 2 7l7 6"/></svg>
+                <span class="pipe-track"></span>
+                <svg class="arrow-head head-fwd" viewBox="0 0 10 14"><path d="M1 1l7 6-7 6"/></svg>
+              </span>
+              <span class="arrow-note" id="pipe-in-note"></span>
+            </div>
 
-        <div class="pipe" id="pipe-batt" data-dir="idle">
-          <span class="pipe-label" id="pipe-batt-label"></span>
-          <span class="pipe-track"></span>
-        </div>
+            <div class="fcard" id="card-laptop" data-tone="use">
+              <div class="fcard-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-laptop"/></svg><span>Being used</span></div>
+              <div class="fcard-value"><span id="laptop-watts">–</span><span class="unit" id="laptop-unit"> W</span></div>
+              <div class="fcard-note" id="laptop-note"></div>
+            </div>
 
-        <div class="node node-battery">
-          <div class="cell" id="cell" style="--level: 0">
-            <svg viewBox="0 0 240 120" aria-hidden="true">
-              <defs>
-                <clipPath id="cell-clip"><rect x="14" y="20" width="192" height="80" rx="13"/></clipPath>
-              </defs>
-              <g clip-path="url(#cell-clip)">
-                <g transform="translate(14 20)">
-                  <g class="cell-level">
-                    <path class="wave wave-back" d="M0 0q24 7 48 0t48 0 48 0 48 0 48 0 48 0 48 0 48 0V92H0z"/>
-                    <path class="wave wave-front" d="M0 0q24-7 48 0t48 0 48 0 48 0 48 0 48 0 48 0 48 0V92H0z"/>
-                    <circle class="bubble" cx="40" cy="80" r="3"/>
-                    <circle class="bubble" cx="92" cy="80" r="2"/>
-                    <circle class="bubble" cx="140" cy="80" r="3.500"/>
-                    <circle class="bubble" cx="170" cy="80" r="2"/>
-                  </g>
-                </g>
-              </g>
-              <rect class="cell-body" x="4" y="10" width="212" height="100" rx="22"/>
-              <rect class="cell-nub" x="221" y="42" width="13" height="36" rx="6"/>
-            </svg>
-            <div class="cell-readout">
-              <svg class="icon cell-bolt" aria-hidden="true"><use href="#i-bolt"/></svg>
-              <span class="cell-percent"><span id="percent">–</span><span class="cell-unit">%</span></span>
+            <div class="arrow" id="pipe-batt" data-dir="idle" data-tone="drain" aria-hidden="true">
+              <span class="arrow-label" id="pipe-batt-label"></span>
+              <span class="arrow-line">
+                <svg class="arrow-head head-back" viewBox="0 0 10 14"><path d="M9 1 2 7l7 6"/></svg>
+                <span class="pipe-track"></span>
+                <svg class="arrow-head head-fwd" viewBox="0 0 10 14"><path d="M1 1l7 6-7 6"/></svg>
+              </span>
+              <span class="arrow-note" id="pipe-batt-note"></span>
+            </div>
+
+            <div class="fcard" id="card-battery" data-tone="idle">
+              <div class="fcard-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-battery"/></svg><span id="battery-eyebrow">Battery</span></div>
+              <div class="fcard-value"><span id="battery-watts">–</span><span class="unit" id="battery-unit"> W</span></div>
+              <div class="fcard-note" id="battery-note"></div>
+              <div class="level">
+                <div class="cell" id="cell" style="--level: 0">
+                  <svg viewBox="0 0 240 120" aria-hidden="true">
+                    <defs>
+                      <clipPath id="cell-clip"><rect x="14" y="20" width="192" height="80" rx="12"/></clipPath>
+                    </defs>
+                    <g clip-path="url(#cell-clip)">
+                      <g transform="translate(14 20)">
+                        <g class="cell-level">
+                          <path class="wave" d="M0 0q24-4 48 0t48 0 48 0 48 0 48 0 48 0 48 0 48 0V92H0z"/>
+                        </g>
+                      </g>
+                    </g>
+                    <rect class="cell-body" x="4" y="10" width="212" height="100" rx="22"/>
+                    <rect class="cell-nub" x="221" y="43" width="12" height="34" rx="5"/>
+                  </svg>
+                </div>
+                <span class="level-text"><span id="percent">–</span>% charged</span>
+              </div>
             </div>
           </div>
-          <div class="node-name">Battery</div>
-          <div class="node-value" id="charge-mah">–</div>
-        </div>
-      </div>
 
-      <p class="scene-hint">Moving dots show where the power is going. Faster dots mean more watts.</p>
-      <p class="eta-note" id="eta-note"></p>
-    </section>
+          <!-- The same thing as one sum. -->
+          <div class="sum" id="equation" hidden></div>
 
-    <section class="card summary-card reveal">
-      <div class="card-head">
-        <div class="card-title">
-          <span class="title-icon tint-violet"><svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg></span>
-          <div>
-            <h3>AI summary</h3>
-            <p class="card-sub">Claude reads the last 24 hours and tells you what matters. Pressing the button sends battery numbers, alert titles and the names of your busiest apps to the Claude API. Nothing is sent otherwise.</p>
+          <!-- And as one bar: where the power comes from, or where it goes. -->
+          <div class="split" id="split" hidden>
+            <div class="split-title" id="split-title"></div>
+            <div class="split-bar" id="split-bar"></div>
+            <ul class="split-legend" id="split-legend"></ul>
           </div>
         </div>
-        <button type="button" class="action" id="summary-button">Write summary</button>
-      </div>
-      <div class="summary-text" id="summary-text" hidden></div>
-      <p class="empty-note" id="summary-note" hidden></p>
-    </section>
+        <p class="caption strong" id="meaning"></p>
+        <p class="caption">W means watts: how fast power is flowing at this moment. A bigger number is more power.</p>
 
-    <section class="pair">
-      <div class="card reveal">
-        <div class="card-head">
-          <div class="card-title">
-            <span class="title-icon tint-orange"><svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg></span>
-            <div>
-              <h3>Using the most energy</h3>
-              <p class="card-sub" id="energy-sub">Which apps are working the battery hardest right now.</p>
-            </div>
+        <h2>Using the most energy right now</h2>
+        <div class="group rows">
+          <ol class="energy" id="energy-top"></ol>
+          <p class="empty" id="energy-top-empty">Measuring…</p>
+        </div>
+        <p class="caption" id="energy-top-sub"></p>
+
+        <h2>Details</h2>
+        <div class="group rows">
+          <div class="row"><span class="row-label">Charger</span><span class="row-value" id="row-charger">–</span></div>
+          <div class="row"><span class="row-label">Battery level</span><span class="row-value" id="row-charge">–</span></div>
+          <div class="row"><span class="row-label" id="row-time-label">Time remaining</span><span class="row-value" id="row-time">–</span></div>
+        </div>
+        <p class="caption" id="eta-note"></p>
+      </section>
+
+      <!-- History -->
+      <section class="view" id="view-history" aria-labelledby="t-history" hidden>
+        <div class="view-head">
+          <h1 id="t-history">History</h1>
+          <div class="segmented" id="range" role="group" aria-label="Time range">
+            <button type="button" data-window="15">15 min</button>
+            <button type="button" data-window="60" aria-pressed="true">1 hour</button>
+            <button type="button" data-window="360">6 hours</button>
+            <button type="button" data-window="1440">24 hours</button>
+            <button type="button" data-window="10080">7 days</button>
           </div>
         </div>
-        <ol class="energy" id="energy"></ol>
-        <p class="empty-note" id="energy-empty">Measuring…</p>
-      </div>
-      <div class="card reveal">
-        <div class="card-head">
-          <div class="card-title">
-            <span class="title-icon tint-yellow"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></span>
-            <div>
-              <h3>Alerts</h3>
-              <p class="card-sub" id="alerts-sub"></p>
-            </div>
-          </div>
-          <label class="switch"><input type="checkbox" id="notify-toggle" disabled> Desktop notifications</label>
-        </div>
-        <ul class="alerts" id="alerts"></ul>
-        <p class="empty-note" id="alerts-empty">No alerts yet. You will be told when the charger can't keep up, when the battery runs low, and when charging reaches 80%.</p>
-      </div>
-    </section>
 
-    <div class="filters reveal" role="group" aria-label="Time range">
-      <button type="button" data-window="15">15 min</button>
-      <button type="button" data-window="60" aria-pressed="true">1 hour</button>
-      <button type="button" data-window="360">6 hours</button>
-      <button type="button" data-window="1440">24 hours</button>
-      <button type="button" data-window="10080">7 days</button>
-    </div>
-
-    <section class="card chart-card reveal">
-      <div class="card-head">
-        <div class="card-title">
-          <span class="title-icon tint-aqua"><svg class="icon" aria-hidden="true"><use href="#i-battery"/></svg></span>
-          <div>
-            <h3>Charge level</h3>
-            <p class="card-sub" id="charge-sub">Percent, last hour.</p>
+        <h2>Charge level</h2>
+        <div class="group chart-group">
+          <div class="chart-wrap">
+            <svg class="chart" id="chart-charge" role="img" tabindex="0" aria-label="Line chart of battery charge level over time. Use the left and right arrow keys to read values."></svg>
+            <div class="tooltip" id="tooltip-charge" hidden></div>
           </div>
         </div>
-      </div>
-      <div class="chart-wrap">
-        <svg class="chart" id="chart-charge" role="img" tabindex="0" aria-label="Line chart of battery charge level over time. Use the left and right arrow keys to read values."></svg>
-        <div class="tooltip" id="tooltip-charge" hidden></div>
-      </div>
-    </section>
+        <p class="caption" id="charge-sub"></p>
 
-    <section class="card chart-card reveal">
-      <div class="card-head">
-        <div class="card-title">
-          <span class="title-icon tint-blue"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg></span>
-          <div>
-            <h3>Power flow</h3>
-            <p class="card-sub" id="power-sub">Watts, last hour.</p>
+        <div class="view-head">
+          <h2>Power</h2>
+          <ul class="legend" id="legend-power" aria-label="Series"></ul>
+        </div>
+        <div class="group chart-group">
+          <div class="chart-wrap">
+            <svg class="chart" id="chart-power" role="img" tabindex="0" aria-label="Line chart of power over time. Use the left and right arrow keys to read values."></svg>
+            <div class="tooltip" id="tooltip-power" hidden></div>
           </div>
         </div>
-        <ul class="legend" id="legend-power" aria-label="Series"></ul>
-      </div>
-      <div class="chart-wrap">
-        <svg class="chart" id="chart-power" role="img" tabindex="0" aria-label="Line chart of power over time. Use the left and right arrow keys to read values."></svg>
-        <div class="tooltip" id="tooltip-power" hidden></div>
-      </div>
-      <details class="table-view" id="table-view">
-        <summary>Show both charts as a table</summary>
-        <table>
-          <thead>
-            <tr><th>Time</th><th id="th-a">From the charger</th><th id="th-b">Laptop is using</th><th>Battery flow</th><th>Charge</th></tr>
-          </thead>
-          <tbody id="table-body"></tbody>
-        </table>
-      </details>
-    </section>
+        <p class="caption" id="power-sub"></p>
 
-    <section class="tiles tiles-4" id="details"></section>
+        <details class="table-view" id="table-view">
+          <summary>Show as table</summary>
+          <div class="group">
+            <table>
+              <thead>
+                <tr><th>Time</th><th id="th-a">From the charger</th><th id="th-b">Laptop is using</th><th>Battery flow</th><th>Charge</th></tr>
+              </thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
+        </details>
+        <p class="caption" id="history-note"></p>
+      </section>
 
-    <footer class="foot">
-      <div id="history-note"></div>
-      Runs locally. Nothing leaves this computer unless you ask for an AI summary. <span id="version"></span>
-    </footer>
-  </main>
+      <!-- Energy -->
+      <section class="view" id="view-energy" aria-labelledby="t-energy" hidden>
+        <h1 id="t-energy">Energy</h1>
+        <div class="group rows" id="energy-group">
+          <ol class="energy" id="energy"></ol>
+          <p class="empty" id="energy-empty">Measuring…</p>
+        </div>
+        <p class="caption" id="energy-sub"></p>
+      </section>
+
+      <!-- Alerts -->
+      <section class="view" id="view-alerts" aria-labelledby="t-alerts" hidden>
+        <h1 id="t-alerts">Alerts</h1>
+        <div class="group rows">
+          <label class="row">
+            <span class="row-label">Desktop notifications</span>
+            <input type="checkbox" class="switch" id="notify-toggle" disabled>
+          </label>
+        </div>
+        <p class="caption" id="alerts-sub"></p>
+
+        <h2>Recent</h2>
+        <div class="group rows">
+          <ul class="alerts" id="alerts"></ul>
+          <p class="empty" id="alerts-empty">No alerts yet.</p>
+        </div>
+        <p class="caption">You are told when the charger can't keep up, when the battery runs low, and when charging reaches 80%.</p>
+      </section>
+
+      <!-- Health -->
+      <section class="view" id="view-health" aria-labelledby="t-health" hidden>
+        <h1 id="t-health">Health</h1>
+        <div class="group rows">
+          <div class="row">
+            <span class="row-label">Maximum capacity</span>
+            <span class="row-value"><span class="meter" id="h-health-meter"><span></span></span><span id="h-health">–</span></span>
+          </div>
+          <div class="row"><span class="row-label">Full charge</span><span class="row-value" id="h-capacity">–</span></div>
+          <div class="row">
+            <span class="row-label">Cycle count</span>
+            <span class="row-value"><span class="meter" id="h-cycles-meter"><span></span></span><span id="h-cycles">–</span></span>
+          </div>
+        </div>
+        <p class="caption" id="h-trend"></p>
+        <div class="spark-host" id="h-spark"></div>
+
+        <h2>Now</h2>
+        <div class="group rows">
+          <div class="row"><span class="row-label">Voltage</span><span class="row-value" id="h-voltage">–</span></div>
+          <div class="row"><span class="row-label">Current</span><span class="row-value" id="h-current">–</span></div>
+          <div class="row" id="h-temp-row" hidden><span class="row-label">Temperature</span><span class="row-value" id="h-temp">–</span></div>
+          <div class="row"><span class="row-label">Charger</span><span class="row-value" id="h-charger">–</span></div>
+        </div>
+        <p class="caption">Maximum capacity is how much charge the battery holds now compared with when it was new. One cycle is a full 100% of charge used, even across several top-ups.</p>
+      </section>
+
+      <!-- Summary -->
+      <section class="view" id="view-summary" aria-labelledby="t-summary" hidden>
+        <div class="view-head">
+          <h1 id="t-summary">Summary</h1>
+          <button type="button" class="button primary" id="summary-button">Write Summary</button>
+        </div>
+        <div class="group summary-group" id="summary-group" hidden>
+          <div class="summary-text" id="summary-text"></div>
+        </div>
+        <p class="caption" id="summary-note" hidden></p>
+        <p class="caption">Claude reads the last 24 hours and writes what happened and what to do about it. Pressing the button sends battery numbers, alert titles and the names of your busiest apps to the Claude API. Nothing leaves this computer otherwise.</p>
+        <p class="caption muted" id="version"></p>
+      </section>
+    </main>
+  </div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

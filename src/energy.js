@@ -31,6 +31,8 @@ const MAC_FRIENDLY = {
   WindowServer: 'WindowServer (display)',
   'com.apple.DriverKit-AppleBCMWLAN': 'Wi-Fi driver',
   coreaudiod: 'Audio',
+  'com.apple.WebKit.WebContent': 'Web content',
+  'com.apple.WebKit.GPU': 'Web content (graphics)',
   kernel_task: 'kernel_task (system)',
   mds_stores: 'Spotlight indexing',
 };

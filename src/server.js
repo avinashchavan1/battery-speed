@@ -199,7 +199,7 @@ export function startServer({ port = configuredPort() } = {}) {
 
     if (pathname === '/api/alerts') {
       return json(res, 200, {
-        alerts: store.recentAlerts(),
+        alerts: store.recentAlerts(Math.min(100, Math.max(1, Number(searchParams.get('limit')) || 8))),
         notifications: notificationsOn(),
         notificationsAvailable: NOTIFY_AVAILABLE,
       });

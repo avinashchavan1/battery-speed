@@ -162,6 +162,40 @@ async function macInstallApp(log) {
   return source;
 }
 
+const MAC_SAVER = 'Battery Speed.saver';
+const MAC_SAVER_ID = 'com.batteryspeed.saver';
+const macSaverPath = () => path.join(os.homedir(), 'Library', 'Screen Savers', MAC_SAVER);
+
+/** Copies the screen saver into the user's Screen Savers folder. Choosing it stays with the user. */
+async function macInstallSaver(log) {
+  const source = path.join(ROOT, 'dist', MAC_SAVER);
+  if (!existsSync(source)) return false;
+  const dest = macSaverPath();
+  mkdirSync(path.dirname(dest), { recursive: true });
+  rmSync(dest, { recursive: true, force: true });
+  await run('ditto', [source, dest]);
+  log('Screen saver installed. To use it, pick "Battery Speed" in System Settings > Screen Saver,');
+  log('or run: battery-speed screensaver');
+  return true;
+}
+
+/** Installs the screen saver if needed and opens the Screen Saver settings to choose it. */
+export async function openScreenSaverSettings(log = console.log) {
+  if (process.platform !== 'darwin') throw new Error('The screen saver is for macOS only.');
+  if (!existsSync(macSaverPath()) && !(await macInstallSaver(log))) {
+    throw new Error('The screen saver is not included in this copy of Battery Speed.');
+  }
+  // The pane's address has changed between macOS versions; try each, then plain Settings.
+  const panes = [
+    'x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension',
+    'x-apple.systempreferences:com.apple.Wallpaper-Settings.extension',
+  ];
+  for (const pane of panes) {
+    if (await run('open', [pane]).then(() => true, () => false)) return;
+  }
+  await run('open', ['-a', 'System Settings']);
+}
+
 async function macInstall(log) {
   const data = dataDir();
   mkdirSync(macAgentsDir(), { recursive: true });
@@ -224,6 +258,7 @@ ${stringArray([path.join(app, MAC_APP_BINARY), '--background'])}
     await macLoad(MAC_MENUBAR);
     log('Menu bar readout started. Open "Battery Speed" from Launchpad or Spotlight for the full window.');
   }
+  await macInstallSaver(log);
 }
 
 async function macUninstall(log) {
@@ -236,7 +271,15 @@ async function macUninstall(log) {
     const app = path.join(folder, MAC_APP);
     if (macIsOurApp(app)) rmSync(app, { recursive: true, force: true });
   }
-  log('Removed the app, the collector and the menu bar readout.');
+  try {
+    const saver = macSaverPath();
+    if (readFileSync(path.join(saver, 'Contents', 'Info.plist'), 'utf8').includes(MAC_SAVER_ID)) {
+      rmSync(saver, { recursive: true, force: true });
+    }
+  } catch {
+    // no screen saver installed
+  }
+  log('Removed the app, the screen saver, the collector and the menu bar readout.');
 }
 
 const macInstalled = () => existsSync(macPlist(MAC_COLLECTOR));

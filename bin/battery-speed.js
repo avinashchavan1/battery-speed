@@ -25,6 +25,7 @@ Commands
   status       Show whether it is running, and the current reading
   open         Open the dashboard in your browser
   key          Save a Claude API key for the optional AI summary
+  screensaver  macOS: open Screen Saver settings to choose the Battery Speed saver
   help         Show this help
 
 Options
@@ -179,6 +180,14 @@ const commands = {
     saveConfig({ anthropicApiKey: key });
     console.log('Saved. It is stored in your Battery Speed data folder, readable only by you.');
     console.log('If Battery Speed is already running it picks the key up on the next summary.');
+  },
+
+  async screensaver() {
+    const { openScreenSaverSettings } = await import('../src/autostart.js');
+    await openScreenSaverSettings();
+    console.log('Screen Saver settings are open. Choose "Battery Speed" from the list (under Other).');
+    console.log('To see it on the locked screen, set the screen saver to start after a short');
+    console.log('time and keep "Require password after screen saver begins" turned on.');
   },
 
   async help() {

@@ -218,10 +218,10 @@ function showTooltip(c, series, tt, p, px, width) {
 
 function renderLegendAndCaptions(v) {
   const range = RANGE_LABELS[chart.windowMin];
-  $('charge-sub').textContent = `Percent, ${range}.`;
+  $('charge-sub').textContent = `Percent over the ${range}. Gaps are times the computer was asleep or off.`;
   $('power-sub').textContent = v.batteryOnly
-    ? `Watts, ${range}. This system reports only what flows into and out of the battery.`
-    : `Watts, ${range}. When the laptop uses more than the charger delivers, the battery makes up the difference.`;
+    ? `Watts over the ${range}. This system reports only what flows into and out of the battery.`
+    : `Watts over the ${range}. When the laptop uses more than the charger delivers, the battery covers the difference.`;
   $('legend-power').replaceChildren(
     ...CHARTS[1].series(v).map((sr) => {
       const li = el('li');

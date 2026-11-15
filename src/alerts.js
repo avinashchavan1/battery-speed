@@ -30,14 +30,16 @@ export class Alerts {
   #store;
   #enabled; // () => boolean: are desktop notifications switched on?
   #chargerRecord; // (watts) => what charger memory knows about that charger
+  #deliver; // (alert) => Promise<boolean>: shows a desktop notification
   #lastFired;
   #prev = null; // previous { percent, state }
   #drainSince = null;
 
-  constructor(store, enabled, chargerRecord = () => null) {
+  constructor(store, enabled, chargerRecord = () => null, deliver = (a) => notify(a.title, a.body)) {
     this.#store = store;
     this.#enabled = enabled;
     this.#chargerRecord = chargerRecord;
+    this.#deliver = deliver;
     this.#lastFired = store.lastAlertTimes();
   }
 
@@ -97,19 +99,19 @@ export class Alerts {
       });
     }
     // A charger just connected (or its rating just became known) that has fallen short before.
-    const watts = s.externalConnected ? (s.adapter?.watts ?? null) : null;
-    if (watts != null && prev && (!prev.external || prev.watts !== watts)) {
-      const record = this.#chargerRecord(watts);
+    const chargerWatts = s.externalConnected ? (s.adapter?.watts ?? null) : null;
+    if (chargerWatts != null && prev && (!prev.external || prev.watts !== chargerWatts)) {
+      const record = this.#chargerRecord(chargerWatts);
       if (record?.verdict === 'weak') {
         candidates.push({
-          kind: `weak_charger_${watts}`,
+          kind: `weak_charger_${chargerWatts}`,
           cooldownMs: 6 * 60 * MIN,
           severity: 'warning',
-          title: `This ${watts} W charger can't keep up`,
+          title: `This ${chargerWatts} W charger can't keep up`,
           body:
             `Before, it fell short ${record.shortSharePct}% of the time, by up to ${record.maxShortW} W. ` +
             'Expect the battery to drain while you work hard' +
-            (record.recommendW && record.recommendW > watts ? `; a ${record.recommendW} W charger would keep up.` : '.'),
+            (record.recommendW && record.recommendW > chargerWatts ? `; a ${record.recommendW} W charger would keep up.` : '.'),
         });
       }
     }
@@ -117,16 +119,25 @@ export class Alerts {
       candidates.push({ kind: 'full', severity: 'good', title: 'Fully charged', body: 'The battery is at 100%.' });
     }
 
-    this.#prev = { percent: s.percent, state: d.state, external: s.externalConnected, watts };
+    this.#prev = { percent: s.percent, state: d.state, external: s.externalConnected, watts: chargerWatts };
+    return this.#fire(candidates, s.ts);
+  }
 
+  /** Raises one alert from outside the per-sample rules (the energy-hog watch). */
+  raise(candidate, ts = Date.now()) {
+    return this.#fire([candidate], ts);
+  }
+
+  // Notifies and saves each candidate that is not inside its cooldown.
+  async #fire(candidates, ts) {
     const fired = [];
     for (const c of candidates) {
       const last = this.#lastFired.get(c.kind);
-      if (last != null && s.ts - last < (COOLDOWN[c.kind] ?? c.cooldownMs)) continue;
-      this.#lastFired.set(c.kind, s.ts);
-      const notified = this.#enabled() ? await notify(c.title, c.body) : false;
+      if (last != null && ts - last < (COOLDOWN[c.kind] ?? c.cooldownMs)) continue;
+      this.#lastFired.set(c.kind, ts);
       const { cooldownMs, ...alert } = c;
-      fired.push(this.#store.addAlert({ ...alert, ts: s.ts, notified }));
+      const notified = this.#enabled() ? await this.#deliver({ ...alert, ts }) : false;
+      fired.push(this.#store.addAlert({ ...alert, ts, notified }));
     }
     return fired;
   }

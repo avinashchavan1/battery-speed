@@ -31,8 +31,8 @@ const MAC_FRIENDLY = {
   WindowServer: 'WindowServer (display)',
   'com.apple.DriverKit-AppleBCMWLAN': 'Wi-Fi driver',
   coreaudiod: 'Audio',
-  'com.apple.WebKit.WebContent': 'Web content',
-  'com.apple.WebKit.GPU': 'Web content (graphics)',
+  'com.apple.WebKit.WebContent': 'Web pages (Safari and app web views)',
+  'com.apple.WebKit.GPU': 'Web pages (graphics)',
   kernel_task: 'kernel_task (system)',
   mds_stores: 'Spotlight indexing',
 };
@@ -73,6 +73,7 @@ async function mac(limit) {
   }
 
   const entries = rows
+    .filter((r) => r.pid !== String(process.pid)) // Battery Speed itself
     .map((r) => [names.get(r.pid), r.power])
     .filter(([comm]) => comm && !comm.endsWith('/top')) // gone, or our own measurement
     .map(([comm, power]) => [macName(comm), power]);

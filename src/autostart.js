@@ -238,10 +238,12 @@ ${stringArray([NODE, CLI, 'start'])}
       plist(
         MAC_MENUBAR,
         `  <key>ProgramArguments</key>
-${stringArray([path.join(app, MAC_APP_BINARY), '--background'])}
+${stringArray(['/usr/bin/open', '-W', '-g', '-a', app, '--args', '--background'])}
   <key>RunAtLoad</key>
   <true/>
-  <!-- Restart after a crash, but stay closed after Quit from the menu. -->
+  <!-- Started through Launch Services (open) rather than directly, so macOS
+       treats it as a normal app launch, which notification permission needs.
+       -W keeps launchd watching it. Restart after a crash, stay closed after Quit. -->
   <key>KeepAlive</key>
   <dict>
     <key>SuccessfulExit</key>
@@ -252,7 +254,7 @@ ${stringArray([path.join(app, MAC_APP_BINARY), '--background'])}
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>StandardErrorPath</key>
-  <string>${xml(path.join(data, 'menubar.log'))}</string>`,
+  <string>${xml(path.join(data, 'menubar-launch.log'))}</string>`,
       ),
     );
     await macLoad(MAC_MENUBAR);

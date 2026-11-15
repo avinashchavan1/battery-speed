@@ -8,6 +8,9 @@ runs on your own computer. Works on macOS, Windows and Linux laptops.
 - **Know the time left.** Time until empty or full, learned from how your own
   battery charges.
 - **Catch a weak charger.** Tells you when you are plugged in but still draining.
+- **Energy-hog alert.** When one app uses most of the energy for a few minutes
+  while the battery drains, you are told which one and roughly what it costs,
+  for example "quitting it would add about 2 hours of battery".
 - **Charger memory.** Remembers every charger you plug in and whether it kept
   up. Plug in one that fell short before and you are warned straight away,
   with the size of charger that would keep up.
@@ -90,6 +93,11 @@ adapts and never shows a number it does not have.
 Where "watts from the charger" is not available, the power chart shows what
 flows into and out of the battery instead.
 
+The energy-hog alert works from the per-app ranking above, so on Windows and
+Linux it is based on processor use. It only watches while the battery is
+draining, measuring apps once a minute, and never names parts of the system
+that cannot be quit. The watts and minutes it quotes are estimates.
+
 On a Mac the battery publishes new figures once a minute. Plugging in or
 unplugging shows up at once, as "Charger connected" or "Running on battery";
 the watts follow within a minute, and the dashboard says "Reading…" until
@@ -99,6 +107,14 @@ The Windows and Linux readers are covered by automated tests against
 representative data, but have not yet been run on real Windows or Linux
 hardware. If something looks wrong there, `battery-speed status` and the log
 in the data folder are the places to look.
+
+## Notifications
+
+On a Mac, alerts are posted by the Battery Speed app itself, with its icon, and
+clicking one opens the app on the section it is about (the Energy list for an
+energy hog, Chargers for a weak charger). macOS asks once for permission. If the
+app is not running, or on Windows and Linux, the system's own notification tool
+is used instead. The Alerts section has a button to send a test notification.
 
 ## Screen saver and the locked screen (macOS)
 
@@ -134,7 +150,8 @@ removes it.
 | Windows | `%LOCALAPPDATA%\Battery Speed`                   |
 | Linux   | `~/.local/share/battery-speed`                   |
 
-It holds the history database, your settings and the log. Delete the folder to
+It holds the history database, your settings and the log. On a Mac, the app
+also logs to `~/Library/Logs/Battery Speed.log`. Delete the folder to
 erase everything. The dashboard is only reachable from your own computer.
 
 ## Development

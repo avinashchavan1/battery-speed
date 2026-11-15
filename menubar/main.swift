@@ -10,6 +10,7 @@
 
 import AppKit
 import IOKit.ps
+import UserNotifications
 import WebKit
 
 private let baseURL = URL(string: "http://127.0.0.1:4780")!
@@ -95,10 +96,80 @@ private let offlinePage = """
 </main>
 """
 
+// MARK: - Notifications
+
+/// An alert as the collector sends it on /notifications.
+struct AlertPayload: Decodable {
+    let kind: String
+    let severity: String
+    let title: String
+    let body: String
+    let ts: Double?
+
+    /// The dashboard section a click on this alert should open.
+    var view: String {
+        if kind.hasPrefix("hog_") { return "energy" }
+        if kind.hasPrefix("weak_charger_") { return "chargers" }
+        if kind == "test" { return "alerts" }
+        return "overview"
+    }
+}
+
+/// Listens to the collector's notification stream (server-sent events) and
+/// hands each alert over. Reconnects on its own if the collector restarts.
+final class AlertStream: NSObject, URLSessionDataDelegate {
+    private let url = URL(string: "http://127.0.0.1:4780/notifications")!
+    private let onAlert: (AlertPayload) -> Void
+    private var buffer = Data()
+    private var session: URLSession?
+    private var running = false
+
+    init(onAlert: @escaping (AlertPayload) -> Void) {
+        self.onAlert = onAlert
+    }
+
+    func start() {
+        guard !running else { return }
+        running = true
+        connect()
+    }
+
+    private func connect() {
+        buffer.removeAll()
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 120 // the collector pings every 25 s
+        config.timeoutIntervalForResource = .infinity
+        session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        session?.dataTask(with: url).resume()
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        buffer.append(data)
+        let separator = Data("\n\n".utf8)
+        while let range = buffer.range(of: separator) {
+            let event = String(decoding: buffer.subdata(in: buffer.startIndex..<range.lowerBound), as: UTF8.self)
+            buffer.removeSubrange(buffer.startIndex..<range.upperBound)
+            let lines = event.split(separator: "\n")
+            guard lines.contains("event: notify"),
+                  let line = lines.first(where: { $0.hasPrefix("data: ") }),
+                  let alert = try? JSONDecoder().decode(AlertPayload.self, from: Data(line.dropFirst(6).utf8))
+            else { continue }
+            onAlert(alert)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        session.invalidateAndCancel()
+        // The collector stopped or restarted: try again shortly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.connect() }
+    }
+}
+
 // MARK: - App
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate, WKNavigationDelegate,
+    UNUserNotificationCenterDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private var timer: Timer?
@@ -108,6 +179,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var showingOfflinePage = false
     private var reportedPlacement = false
     private var reportedDashboard = false
+    private var alertStream: AlertStream?
+    private var pendingView: String? // section to show once the window has loaded
 
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -126,13 +199,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             Task { @MainActor in self?.refresh() }
         }
         watchPowerSource()
+        startNotifications()
         // Launched by hand rather than at login: show the window straight away.
-        if !CommandLine.arguments.contains("--background") { showDashboard() }
+        if !CommandLine.arguments.contains("--background") { showDashboard(view: nil) }
     }
 
     // Opening the app again (Finder, Launchpad, Spotlight, the Dock) shows the window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showDashboard()
+        showDashboard(view: nil)
         return false
     }
 
@@ -144,13 +218,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     // MARK: Dashboard window
 
-    @objc func showDashboard() {
+    @objc func openDashboard() { showDashboard(view: nil) }
+
+    /// Shows the window, optionally on one section ("energy", "chargers", ...).
+    func showDashboard(view: String?) {
         if window == nil { buildWindow() }
         NSApp.setActivationPolicy(.regular) // Dock icon while the window is open
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         // Reload if the page is not the live dashboard (first open, or the offline page).
-        if webView?.url?.host != baseURL.host || showingOfflinePage { loadDashboard() }
+        if webView?.url?.host != baseURL.host || showingOfflinePage {
+            pendingView = view
+            loadDashboard()
+        } else if let view {
+            webView?.evaluateJavaScript("location.hash = '#\(view)'")
+        }
+    }
+
+    // MARK: Notifications
+
+    /// Alerts are posted by this app, so they carry its icon and name, and a
+    /// click opens Battery Speed. macOS asks once for permission.
+    private func startNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error { NSLog("notification permission request failed: %@", error.localizedDescription) }
+            NSLog("notification permission: %@", granted ? "granted" : "not granted")
+            DispatchQueue.main.async { [weak self] in
+                // Only take over delivery once allowed; until then the collector
+                // keeps using the system's own notifications.
+                guard granted, let self else { return }
+                self.alertStream = AlertStream { [weak self] alert in self?.post(alert) }
+                self.alertStream?.start()
+            }
+        }
+    }
+
+    private func post(_ alert: AlertPayload) {
+        let content = UNMutableNotificationContent()
+        content.title = alert.title
+        content.body = alert.body
+        content.sound = alert.severity == "good" ? nil : .default
+        content.threadIdentifier = alert.kind
+        content.userInfo = ["view": alert.view]
+        let id = "\(alert.kind)-\(Int(alert.ts ?? Date().timeIntervalSince1970 * 1000))"
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
+            if let error { NSLog("could not post notification: %@", error.localizedDescription) }
+            else { NSLog("posted notification: %@", alert.title) }
+        }
+    }
+
+    // Show alerts even while the window is in front.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    // A click on an alert opens the app on the section it is about.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let view = response.notification.request.content.userInfo["view"] as? String
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                (NSApp.delegate as? AppDelegate)?.showDashboard(view: view)
+            }
+            completionHandler()
+        }
     }
 
     private func buildWindow() {
@@ -196,7 +336,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func loadDashboard() {
         showingOfflinePage = false
-        webView?.load(URLRequest(url: baseURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5))
+        var url = baseURL
+        if let view = pendingView, let withView = URL(string: "#\(view)", relativeTo: baseURL) {
+            url = withView.absoluteURL
+        }
+        pendingView = nil
+        webView?.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5))
     }
 
     @objc private func reloadDashboard() { loadDashboard() }
@@ -351,7 +496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Open Battery Speed", action: #selector(showDashboard), keyEquivalent: "d")
+        let open = NSMenuItem(title: "Open Battery Speed", action: #selector(openDashboard), keyEquivalent: "d")
         open.target = self
         menu.addItem(open)
         let browser = NSMenuItem(title: "Open in Browser", action: #selector(openInBrowser), keyEquivalent: "")
@@ -403,6 +548,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.windowsMenu = windowMenu
     }
 }
+
+// Messages go to ~/Library/Logs/Battery Speed.log however the app was started
+// (at login, from Finder, from a notification), so problems can be looked up.
+private func redirectLogToFile() {
+    let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
+    try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+    freopen(logs.appendingPathComponent("Battery Speed.log").path, "a", stderr)
+}
+redirectLogToFile()
 
 // Top-level code runs on the main thread; say so, since AppDelegate is main-actor bound.
 MainActor.assumeIsolated {

@@ -436,6 +436,7 @@ async function loadHealth() {
 
 // Rows are updated in place so the bars glide to their new widths.
 function renderEnergyList(list, empty, data) {
+  const hogName = data.hog?.name;
   const isEnergy = data.metric === 'energy';
   const max = Math.max(1, ...data.apps.map((a) => a.power));
   while (list.children.length > data.apps.length) list.lastChild.remove();
@@ -452,6 +453,7 @@ function renderEnergyList(list, empty, data) {
       li.getBoundingClientRect(); // lay out at 0% first, so the first width animates too
     }
     li.children[0].textContent = `${i + 1}. ${app.name}`;
+    li.classList.toggle('is-hog', app.name === hogName);
     li.children[1].firstChild.style.width = `${(app.power / max) * 100}%`;
     li.children[2].textContent = isEnergy ? app.power.toFixed(1) : `${Math.round(app.power)}%`;
   });
@@ -469,6 +471,14 @@ async function loadEnergy() {
   try {
     const data = await getJson('/api/energy');
     for (const [list, empty] of lists) renderEnergyList(list, empty, data);
+    // When one app is draining the battery, say so above both lists.
+    for (const callout of [$('hog-overview'), $('hog-energy')]) {
+      callout.hidden = !data.hog;
+      if (data.hog) {
+        callout.querySelector('.callout-title').textContent = data.hog.title;
+        callout.querySelector('.callout-body').textContent = data.hog.body;
+      }
+    }
     const explain =
       data.metric === 'energy'
         ? 'Ranked by energy impact, the same figure Activity Monitor shows. A higher number uses more battery.'
@@ -599,6 +609,23 @@ async function loadAlerts() {
   } catch (err) {
     console.warn('Could not load alerts:', err.message);
   }
+}
+
+function wireNotifyTest() {
+  const button = $('notify-test');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const result = await getJson('/api/notify-test', { method: 'POST' });
+      button.textContent = result.shown ? 'Sent' : 'Could not send';
+    } catch {
+      button.textContent = 'Could not send';
+    }
+    setTimeout(() => {
+      button.textContent = 'Send Test Notification';
+      button.disabled = false;
+    }, 2500);
+  });
 }
 
 function wireNotifyToggle() {
@@ -806,6 +833,7 @@ wireNavigation();
 wireCharts();
 wireRange();
 wireNotifyToggle();
+wireNotifyTest();
 wireSummary();
 wireSound();
 connect();

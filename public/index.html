@@ -146,6 +146,10 @@
         <p class="caption">W means watts: how fast power is flowing at this moment. A bigger number is more power.</p>
 
         <h2>Using the most energy right now</h2>
+        <div class="callout" id="hog-overview" role="status" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-warning"/></svg>
+          <div><div class="callout-title"></div><div class="callout-body"></div></div>
+        </div>
         <div class="group rows">
           <ol class="energy" id="energy-top"></ol>
           <p class="empty" id="energy-top-empty">Measuring…</p>
@@ -216,6 +220,10 @@
       <!-- Energy -->
       <section class="view" id="view-energy" aria-labelledby="t-energy" hidden>
         <h1 id="t-energy">Energy</h1>
+        <div class="callout" id="hog-energy" role="status" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-warning"/></svg>
+          <div><div class="callout-title"></div><div class="callout-body"></div></div>
+        </div>
         <div class="group rows" id="energy-group">
           <ol class="energy" id="energy"></ol>
           <p class="empty" id="energy-empty">Measuring…</p>
@@ -242,6 +250,10 @@
             <span class="row-label">Desktop notifications</span>
             <input type="checkbox" class="switch" id="notify-toggle" disabled>
           </label>
+          <div class="row">
+            <span class="row-label">Try one</span>
+            <button type="button" class="button inline" id="notify-test">Send Test Notification</button>
+          </div>
         </div>
         <p class="caption" id="alerts-sub"></p>
 

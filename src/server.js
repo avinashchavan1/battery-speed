@@ -13,6 +13,8 @@ import { healthTrend } from './health.js';
 import { energyUsers } from './energy.js';
 import { buildDigest, generateSummary } from './summary.js';
 import { ChargerMemory } from './chargers.js';
+import { HogWatch, hogAlert } from './hogs.js';
+import { notify } from './notify.js';
 import { ROOT, VERSION, dbFile, port as configuredPort, apiKey } from './paths.js';
 
 const HOST = '127.0.0.1'; // never exposed to the network
@@ -20,6 +22,10 @@ const LIVE_MS = PLATFORM?.liveMs ?? 2000; // poll rate while a dashboard is open
 const IDLE_MS = PLATFORM?.idleMs ?? 15_000; // background rate, to stay light on the battery
 const MAX_RANGE_MIN = 60 * 24 * 365;
 const ENERGY_CACHE_MS = 20_000;
+// On battery, apps are measured once a minute to catch one draining it.
+// The measurement takes about a second, so it does not run on the charger.
+const HOG_CHECK_MS = 60_000;
+const NOTIFIER_PING_MS = 25_000; // keeps the Mac app's notification stream open
 // BATTERY_NOTIFY=off silences desktop notifications entirely (used by the dev copy).
 const NOTIFY_AVAILABLE = process.env.BATTERY_NOTIFY !== 'off';
 
@@ -38,7 +44,24 @@ export function startServer({ port = configuredPort() } = {}) {
   const estimator = new Estimator(new Profile(store));
   const notificationsOn = () => NOTIFY_AVAILABLE && store.getSetting('notifications', 'on') === 'on';
   const chargers = new ChargerMemory(store);
-  const alerts = new Alerts(store, notificationsOn, (watts) => chargers.lookup(watts));
+
+  // The Battery Speed Mac app subscribes to /notifications and posts alerts as
+  // itself: its own icon, and a click opens the app. Without it (or on
+  // Windows and Linux) the system's own notification tool is used instead.
+  const notifiers = new Set();
+  const deliver = (alert) => {
+    if (notifiers.size) {
+      for (const res of notifiers) send(res, 'notify', alert);
+      return Promise.resolve(true);
+    }
+    return notify(alert.title, alert.body);
+  };
+  const notifierPing = setInterval(() => {
+    for (const res of notifiers) res.write(': ping\n\n');
+  }, NOTIFIER_PING_MS);
+
+  const alerts = new Alerts(store, notificationsOn, (watts) => chargers.lookup(watts), deliver);
+  const hogs = new HogWatch();
   const clients = new Set();
   let latest = null;
   let fault = null;
@@ -98,6 +121,7 @@ export function startServer({ port = configuredPort() } = {}) {
     energyCache.pending ??= energyUsers()
       .then((data) => {
         energyCache = { at: Date.now(), pending: null, data };
+        watchForHog(data);
         return data;
       })
       .catch((err) => {
@@ -106,6 +130,22 @@ export function startServer({ port = configuredPort() } = {}) {
       });
     return energyCache.pending;
   }
+
+  // Every fresh measurement, whoever asked for it, feeds the hog watch.
+  function watchForHog(energy) {
+    const hog = hogs.observe(energy, latest);
+    if (!hog) return;
+    alerts.raise(hogAlert(hog)).then(
+      (fired) => fired.forEach((alert) => broadcast('alert', alert)),
+      (err) => console.error('[hogs] alert failed:', err.message),
+    );
+  }
+
+  const hogTimer = setInterval(() => {
+    const state = latest?.derived?.state;
+    if (state === 'discharging' || state === 'draining_on_ac') energyNow().catch(() => {});
+    else hogs.observe(null, latest); // on the charger: clear any earlier hog
+  }, HOG_CHECK_MS);
 
   const savedSummary = () => {
     const raw = store.getSetting('summary', '');
@@ -194,6 +234,33 @@ export function startServer({ port = configuredPort() } = {}) {
 
     // `fresh=1` (sent by the Mac app the moment the power source changes) or a
     // reading older than a few seconds triggers a new read before answering.
+    // The Mac app's notification stream. Unlike /events it does not make the
+    // collector poll faster, so having the app running costs nothing extra.
+    if (pathname === '/notifications') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        Connection: 'keep-alive',
+      });
+      res.write(': connected\n\n');
+      notifiers.add(res);
+      req.on('close', () => notifiers.delete(res));
+      return;
+    }
+
+    // Shows a sample notification, so people can see what alerts look like.
+    if (pathname === '/api/notify-test' && req.method === 'POST') {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin request refused' });
+      deliver({
+        kind: 'test',
+        severity: 'good',
+        title: 'Battery Speed notifications work',
+        body: 'Alerts look like this. Click one to open Battery Speed.',
+        ts: Date.now(),
+      }).then((shown) => json(res, 200, { shown, via: notifiers.size ? 'app' : 'system' }));
+      return;
+    }
+
     if (pathname === '/api/now') {
       const stale = !latest || Date.now() - latest.ts > 4000;
       if (searchParams.get('fresh') === '1' || stale) {
@@ -236,7 +303,11 @@ export function startServer({ port = configuredPort() } = {}) {
 
     if (pathname === '/api/energy') {
       energyNow().then(
-        (data) => json(res, 200, data),
+        (data) => {
+          const hog = hogs.current();
+          const { title, body } = hog ? hogAlert(hog) : {};
+          json(res, 200, { ...data, hog: hog && { ...hog, title, body } });
+        },
         (err) => json(res, 500, { error: err.message }),
       );
       return;
@@ -279,6 +350,8 @@ export function startServer({ port = configuredPort() } = {}) {
 
   const close = () => {
     clearTimeout(timer);
+    clearInterval(hogTimer);
+    clearInterval(notifierPing);
     server.close();
     store.close();
   };

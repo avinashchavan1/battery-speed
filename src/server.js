@@ -54,10 +54,17 @@ export function startServer({ port = configuredPort() } = {}) {
   // itself: its own icon, and a click opens the app. Without it (or on
   // Windows and Linux) the system's own notification tool is used instead.
   const notifiers = new Set();
-  const deliver = (alert) => {
+  // Just after the collector starts, the app takes a few seconds to reconnect;
+  // on a Mac, give it that long before falling back to the system tool.
+  const waitForApp = async (ms) => {
+    const until = Date.now() + ms;
+    while (!notifiers.size && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 250));
+  };
+  const deliver = async (alert) => {
+    if (!notifiers.size && process.platform === 'darwin') await waitForApp(10_000);
     if (notifiers.size) {
       for (const res of notifiers) send(res, 'notify', alert);
-      return Promise.resolve(true);
+      return true;
     }
     return notify(alert.title, alert.body);
   };
@@ -167,8 +174,11 @@ export function startServer({ port = configuredPort() } = {}) {
     if (setting('digest', 'on') !== 'on') return;
     const digest = yesterdaysDigest(now);
     if (!digest.title) return; // the laptop was barely used yesterday
+    // `digest:sentOn` already limits this to once a day. The cooldown only stops
+    // a double send around a restart; a long one would swallow the next morning's
+    // digest whenever the previous one went out late in the day.
     const fired = await alerts.raise(
-      { kind: 'digest', cooldownMs: 20 * 3600_000, severity: 'good', title: digest.title, body: digest.lines.join(' ') },
+      { kind: 'digest', cooldownMs: 60 * 60_000, severity: 'good', title: digest.title, body: digest.lines.join(' ') },
       now,
     );
     fired.forEach((alert) => broadcast('alert', alert));

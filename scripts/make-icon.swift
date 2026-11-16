@@ -1,11 +1,14 @@
 // Draws the Battery Speed app icon as a 1024px PNG.
-// Usage: xcrun swift scripts/make-icon.swift <output.png>
-// build-menubar.sh turns the PNG into the .icns the app bundle uses.
+// Usage: xcrun swift scripts/make-icon.swift <output.png> [--full-bleed]
+// build-menubar.sh turns the PNG into the .icns the Mac app uses.
+// --full-bleed fills the whole square with no transparency, as iOS requires
+// (iOS rounds the corners itself).
 
 import AppKit
 
 let size: CGFloat = 1024
 let output = CommandLine.arguments.dropFirst().first ?? "icon.png"
+let fullBleed = CommandLine.arguments.contains("--full-bleed")
 
 let rep = NSBitmapImageRep(
     bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size),
@@ -21,12 +24,13 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColo
 let rgb = CGColorSpace(name: CGColorSpace.sRGB)!
 
 // macOS icon grid: an 824px rounded square centred on the 1024px canvas.
-let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
-let tilePath = CGPath(roundedRect: tile, cornerWidth: 185, cornerHeight: 185, transform: nil)
+let tile = fullBleed ? CGRect(x: 0, y: 0, width: size, height: size) : CGRect(x: 100, y: 100, width: 824, height: 824)
+let corner: CGFloat = fullBleed ? 0 : 185
+let tilePath = CGPath(roundedRect: tile, cornerWidth: corner, cornerHeight: corner, transform: nil)
 
-// Soft drop shadow under the tile.
+// Soft drop shadow under the tile (not on iOS, where the system draws the shape).
 ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0, 0, 0, 0.35))
+if !fullBleed { ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0, 0, 0, 0.35)) }
 ctx.addPath(tilePath)
 ctx.setFillColor(color(16, 18, 17))
 ctx.fillPath()
@@ -37,7 +41,7 @@ ctx.saveGState()
 ctx.addPath(tilePath)
 ctx.clip()
 let base = CGGradient(colorsSpace: rgb, colors: [color(34, 40, 36), color(11, 11, 12)] as CFArray, locations: [0, 1])!
-ctx.drawLinearGradient(base, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
+ctx.drawLinearGradient(base, start: CGPoint(x: 512, y: tile.maxY), end: CGPoint(x: 512, y: tile.minY), options: [])
 
 // Green glow behind the bolt, like the dashboard when charging.
 let glow = CGGradient(
@@ -50,11 +54,12 @@ ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 500), startRadius: 
 
 // A liquid level across the lower part of the tile, with a wave on top.
 let wave = CGMutablePath()
-wave.move(to: CGPoint(x: 100, y: 372))
-wave.addCurve(to: CGPoint(x: 512, y: 372), control1: CGPoint(x: 236, y: 432), control2: CGPoint(x: 376, y: 312))
-wave.addCurve(to: CGPoint(x: 924, y: 372), control1: CGPoint(x: 648, y: 432), control2: CGPoint(x: 788, y: 312))
-wave.addLine(to: CGPoint(x: 924, y: 100))
-wave.addLine(to: CGPoint(x: 100, y: 100))
+let x0 = tile.minX, x1 = tile.maxX, y0 = tile.minY
+wave.move(to: CGPoint(x: x0, y: 372))
+wave.addCurve(to: CGPoint(x: 512, y: 372), control1: CGPoint(x: x0 + 136, y: 432), control2: CGPoint(x: 376, y: 312))
+wave.addCurve(to: CGPoint(x: x1, y: 372), control1: CGPoint(x: 648, y: 432), control2: CGPoint(x: 788, y: 312))
+wave.addLine(to: CGPoint(x: x1, y: y0))
+wave.addLine(to: CGPoint(x: x0, y: y0))
 wave.closeSubpath()
 ctx.addPath(wave)
 ctx.setFillColor(color(12, 163, 12, 0.30))
@@ -82,13 +87,15 @@ ctx.setFillColor(color(255, 255, 255))
 ctx.drawPath(using: .fillStroke) // the stroke rounds the bolt's corners
 ctx.restoreGState()
 
-// A faint highlight along the tile's top edge.
+// A faint highlight along the tile's top edge (Mac only).
+if !fullBleed {
 ctx.saveGState()
 ctx.addPath(tilePath)
 ctx.setStrokeColor(color(255, 255, 255, 0.10))
 ctx.setLineWidth(3)
 ctx.strokePath()
 ctx.restoreGState()
+}
 
 NSGraphicsContext.current = nil
 guard let png = rep.representation(using: .png, properties: [:]) else {

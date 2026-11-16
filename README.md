@@ -1,7 +1,7 @@
 # Battery Speed
 
-Live battery stats, charging speed and time left, in an animated dashboard that
-runs on your own computer. Works on macOS, Windows and Linux laptops.
+Live battery stats, charging speed and time left. Runs on your own devices:
+macOS, Windows and Linux laptops, plus native apps for Android and iPhone.
 
 - **See power move.** Charger, laptop and battery drawn as a live scene, with
   dots flowing wherever the watts are going.
@@ -64,6 +64,38 @@ unzip it, and double-click the launcher for your system:
 This runs it until you close the window. For the optional AI summary, run
 `npm install` in the folder once.
 
+## Phones
+
+### Android (`android/`)
+
+A native Android app (Kotlin, Material You) with most of the laptop features:
+live charge level, power into or out of the battery in watts, charger type,
+temperature, voltage, cycle count (Android 14+), time to full or empty, history,
+alerts (low battery, charger can't keep up, unplug reminder, full), and a quiet
+status notification with the live readout. Runs on Android 8 and later.
+
+To install: download `app-release.apk` from the
+[Releases page](https://github.com/avinashchavan1/battery-speed/releases) on the
+phone, open it, and allow installs from that source when Android asks.
+To build it yourself: install Android Studio (or the Android SDK), then run
+`./gradlew assembleRelease` in `android/`.
+
+### iPhone (`ios/`)
+
+A native iPhone app (SwiftUI). iOS lets apps see much less than Android: only
+the battery level, whether it is charging, and Low Power Mode. It cannot read
+watts, charger power, temperature, battery health or cycle count, and it cannot
+watch the battery in the background. So the iPhone app shows the level and
+state, keeps history while it runs, works out time left from how fast the level
+moves, and schedules unplug and low-battery reminders ahead of time from that
+estimate.
+
+To install on your iPhone: open `ios/BatterySpeed.xcodeproj` in Xcode, choose
+your Apple ID team under Signing & Capabilities, connect the phone and press
+Run. With a free Apple ID the app has to be reinstalled every 7 days; the App
+Store needs a paid Apple Developer account. The Simulator has no battery, so
+there the app shows sample data.
+
 ## Commands
 
 ```
@@ -83,18 +115,21 @@ battery-speed screensaver  macOS: open settings to choose the screen saver
 Operating systems expose different amounts of battery data. The dashboard
 adapts and never shows a number it does not have.
 
-| Feature                              | Mac (Apple Silicon) | Mac (Intel) | Windows | Linux |
-| ------------------------------------ | :-----------------: | :---------: | :-----: | :---: |
-| Charge, time left, charging speed    | yes | yes | yes | yes |
-| Plugged-in-but-draining warning      | yes | yes | yes | yes |
-| History charts, alerts, health trend | yes | yes | yes | yes |
-| Watts from the charger, total draw   | yes | no  | no  | no  |
-| Charger's rated watts                | yes | yes | no  | USB-C only |
-| Per-app ranking                      | energy impact | energy impact | CPU use | CPU use |
-| Cycle count                          | yes | yes | most laptops | most laptops |
-| App window and menu bar readout      | yes | yes | no  | no  |
-| Screen saver for the locked screen   | yes | yes | no  | no  |
-| Charger memory                       | yes | yes | no  | USB-C only |
+| Feature                              | Mac (Apple Silicon) | Mac (Intel) | Windows | Linux | Android | iPhone |
+| ------------------------------------ | :-----------------: | :---------: | :-----: | :---: | :-----: | :----: |
+| Charge level and charging state      | yes | yes | yes | yes | yes | yes |
+| Watts into or out of the battery     | yes | yes | yes | yes | most phones | no |
+| Time left                            | yes | yes | yes | yes | yes | estimated from level |
+| Plugged-in-but-draining warning      | yes | yes | yes | yes | most phones | no |
+| History and alerts                   | yes | yes | yes | yes | yes | while open, plus scheduled reminders |
+| Watts from the charger, total draw   | yes | no  | no  | no  | no  | no |
+| Charger's rated watts                | yes | yes | no  | USB-C only | no | no |
+| Per-app ranking                      | energy impact | energy impact | CPU use | CPU use | no | no |
+| Cycle count                          | yes | yes | most laptops | most laptops | Android 14+ | no |
+| Temperature                          | no | yes | no | some | yes | no |
+| Live readout outside the app         | menu bar | menu bar | no | no | status notification | no |
+| Screen saver for the locked screen   | yes | yes | no  | no  | no | no |
+| Charger memory, summary, digest      | yes | yes | yes (no charger memory) | USB-C only | no | no |
 
 Where "watts from the charger" is not available, the power chart shows what
 flows into and out of the battery instead.
@@ -111,7 +146,8 @@ they do, instead of showing figures from before the change.
 
 The Windows and Linux readers are covered by automated tests against
 representative data, but have not yet been run on real Windows or Linux
-hardware. If something looks wrong there, `battery-speed status` and the log
+hardware. The Android app has been tested on the Android emulator and the
+iPhone app on the iOS Simulator; neither has run on a real phone yet. If something looks wrong there, `battery-speed status` and the log
 in the data folder are the places to look.
 
 ## Notifications

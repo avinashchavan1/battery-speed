@@ -74,9 +74,10 @@ temperature, voltage, cycle count (Android 14+), time to full or empty, history,
 alerts (low battery, charger can't keep up, unplug reminder, full), and a quiet
 status notification with the live readout. Runs on Android 8 and later.
 
-To install: download `app-release.apk` from the
-[Releases page](https://github.com/avinashchavan1/battery-speed/releases) on the
-phone, open it, and allow installs from that source when Android asks.
+To install: on the phone, download
+[BatterySpeed-android-1.0.0.apk](https://github.com/avinashchavan1/battery-speed/releases/download/android-v1.0.0/BatterySpeed-android-1.0.0.apk)
+(1.1 MB, also on the [Releases page](https://github.com/avinashchavan1/battery-speed/releases)),
+open it, and allow installs from that source when Android asks.
 To build it yourself: install Android Studio (or the Android SDK), then run
 `./gradlew assembleRelease` in `android/`.
 

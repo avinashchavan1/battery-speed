@@ -97,6 +97,33 @@ private let offlinePage = """
 </main>
 """
 
+// MARK: - Window dragging
+
+/// The page fills the whole window, title bar included, so the web view would
+/// take every click there and the window could not be dragged. This strip sits
+/// over the top of the window, where the page leaves empty space, and hands
+/// drags and double-clicks back to macOS like a normal title bar.
+final class TitleBarDragStrip: NSView {
+    static let height: CGFloat = 36 // the page keeps its top 38 px empty in the app
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        if event.clickCount == 2 {
+            // Follow System Settings > Desktop & Dock > "Double-click a window's title bar to".
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+            case "Minimize": window.performMiniaturize(nil)
+            case "None": break
+            default: window.performZoom(nil)
+            }
+        } else {
+            window.performDrag(with: event)
+        }
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } // drag even when inactive
+    override var mouseDownCanMoveWindow: Bool { true }
+}
+
 // MARK: - Notifications
 
 /// An alert as the collector sends it on /notifications.
@@ -402,6 +429,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         web.autoresizingMask = [.width, .height]
         material.addSubview(web)
 
+        let strip = TitleBarDragStrip(frame: NSRect(
+            x: 0, y: material.bounds.height - TitleBarDragStrip.height,
+            width: material.bounds.width, height: TitleBarDragStrip.height
+        ))
+        strip.autoresizingMask = [.width, .minYMargin] // stays pinned to the top as the window resizes
+        material.addSubview(strip) // above the web view; the window buttons still sit above both
+
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -460,9 +494,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             let script = "document.title + ' | ' + (document.getElementById('percent')?.textContent ?? '?') + '% | ' + (document.getElementById('headline')?.textContent ?? '?') + ' | native chrome: ' + document.documentElement.classList.contains('in-app')"
             self?.webView?.evaluateJavaScript(script) { result, _ in
-                NSLog("dashboard window loaded: %@", (result as? String) ?? "no result")
+                NSLog("dashboard window loaded: %@ | title bar click goes to: %@",
+                      (result as? String) ?? "no result", self?.titleBarHitClass() ?? "?")
             }
         }
+    }
+
+    /// Which view a click in the middle of the title bar area reaches, asked of
+    /// the whole window frame (so the title bar's own views are included).
+    func titleBarHitClass() -> String {
+        guard let window, let frame = window.contentView?.superview else { return "no window" }
+        let point = NSPoint(x: frame.bounds.midX, y: frame.bounds.maxY - 18)
+        return frame.hitTest(point).map { String(describing: type(of: $0)) } ?? "nothing"
     }
 
     // Links that leave the dashboard open in the default browser, not in this window.

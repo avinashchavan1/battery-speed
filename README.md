@@ -27,9 +27,8 @@ macOS, Windows and Linux laptops, plus native apps for Android and iPhone.
   black screen, redrawn twice a minute so it costs next to nothing.
 - **Free summary.** A written analysis of the last 24 hours, made on your own
   computer with no account or key. Optionally written by a local open-source
-  model, or by Claude if you add a key.
-- **Private.** Everything stays on your computer, unless you choose Claude for
-  the summary; that only runs when you press its button.
+  model.
+- **Private.** Everything stays on your computer.
 
 ## Install
 
@@ -105,7 +104,6 @@ battery-speed install      Start at login and record in the background
 battery-speed uninstall    Remove start-at-login and stop the background copy
 battery-speed status       Is it running? Current reading, data folder
 battery-speed open         Open the dashboard
-battery-speed key          Save a Claude API key for the AI summary
 battery-speed screensaver  macOS: open settings to choose the screen saver
 ```
 
@@ -178,19 +176,15 @@ it works even when the collector is not running.
 
 Press "Write Summary" and you get the last 24 hours in plain language: the most
 important finding, the numbers, and what to do about it. It is written by the
-best option you have set up:
+best option available, both free and private:
 
 1. **Built-in analysis** (always available): Battery Speed writes it itself
-   from your history. Free, no account, nothing leaves your computer.
+   from your history. No account, nothing leaves your computer.
 2. **A local open-source model**: install [Ollama](https://ollama.com) and a
    model (for example `ollama pull llama3.2`), and Battery Speed uses it
-   automatically. Free and private; it runs on your own computer.
-3. **Claude**: run `battery-speed key` and paste a Claude API key. This sends
-   battery numbers, alert titles and the names of your busiest apps to the
-   Claude API, and only when you press the button. `battery-speed key --clear`
-   removes the key.
+   automatically. It runs on your own computer.
 
-If an AI model fails, you get the built-in analysis instead.
+If the model fails, you get the built-in analysis instead.
 
 ## Reminders
 

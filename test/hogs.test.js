@@ -15,8 +15,8 @@ const energy = (apps) => ({
 });
 const onBattery = { systemLoadMw: 40_000, batteryPowerMw: -40_000, derived: { state: 'discharging', etaKind: 'empty', etaMin: 120 } };
 const charging = { systemLoadMw: 40_000, batteryPowerMw: 20_000, derived: { state: 'charging' } };
-const HOG = energy([['ffmpeg', 180], ['WindowServer (display)', 50], ['Claude', 20], ['Audio', 10]]);
-const CALM = energy([['Claude', 54], ['WindowServer (display)', 40], ['Google Chrome', 22], ['Audio', 12]]);
+const HOG = energy([['ffmpeg', 180], ['WindowServer (display)', 50], ['Slack', 20], ['Audio', 10]]);
+const CALM = energy([['Slack', 54], ['WindowServer (display)', 40], ['Google Chrome', 22], ['Audio', 12]]);
 
 test('an app has to hog the battery for a couple of minutes before it is named', () => {
   const watch = new HogWatch();
@@ -34,10 +34,10 @@ test('an app has to hog the battery for a couple of minutes before it is named',
 test('a runaway process is named even next to a busy browser and display', () => {
   // Measured live: four `yes` processes alongside Chrome and the display.
   const readings = [
-    [['yes', 113.6], ['Google Chrome', 58.3], ['WindowServer (display)', 51.4], ['Claude', 30]],
-    [['yes', 84.7], ['WindowServer (display)', 65.9], ['Google Chrome', 58.9], ['Claude', 30]],
-    [['yes', 109.2], ['WindowServer (display)', 54.9], ['Google Chrome', 53.7], ['Claude', 30]],
-    [['yes', 86.8], ['WindowServer (display)', 56.5], ['Google Chrome', 51.2], ['Claude', 30]],
+    [['yes', 113.6], ['Google Chrome', 58.3], ['WindowServer (display)', 51.4], ['Slack', 30]],
+    [['yes', 84.7], ['WindowServer (display)', 65.9], ['Google Chrome', 58.9], ['Slack', 30]],
+    [['yes', 109.2], ['WindowServer (display)', 54.9], ['Google Chrome', 53.7], ['Slack', 30]],
+    [['yes', 86.8], ['WindowServer (display)', 56.5], ['Google Chrome', 51.2], ['Slack', 30]],
   ];
   const watch = new HogWatch();
   const results = readings.map((apps, i) => watch.observe(energy(apps), onBattery, i * MIN));
@@ -61,7 +61,7 @@ test('ordinary use, the charger, and parts of the system are never named', () =>
   for (let t = 0; t <= 10 * MIN; t += MIN) assert.equal(plugged.observe(HOG, charging, t), null);
 
   const system = new HogWatch();
-  const display = energy([['WindowServer (display)', 200], ['Claude', 20]]);
+  const display = energy([['WindowServer (display)', 200], ['Slack', 20]]);
   for (let t = 0; t <= 10 * MIN; t += MIN) assert.equal(system.observe(display, onBattery, t), null);
 });
 

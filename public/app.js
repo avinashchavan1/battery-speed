@@ -682,12 +682,10 @@ function wireNotifyToggle() {
 // ---------- summary ----------
 
 const PRIVACY = {
-  claude:
-    'Written by Claude. Pressing the button sends battery numbers, alert titles and the names of your busiest apps to the Claude API.',
   local: 'Written by an open-source model running on this computer. Nothing leaves it.',
   builtin:
     'Written by Battery Speed itself from your history: free, and nothing leaves this computer. ' +
-    'For AI-written summaries, install Ollama (ollama.com) with a model such as llama3.2, or add a Claude API key with "battery-speed key".',
+    'For AI-written summaries, install Ollama (ollama.com) with a model such as llama3.2.',
 };
 
 function renderDigest(digest) {

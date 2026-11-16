@@ -2,7 +2,6 @@
 // Battery Speed command line: one entry point on macOS, Windows and Linux.
 
 import { spawn } from 'node:child_process';
-import readline from 'node:readline';
 
 // Checked before anything else loads: the history store needs Node's built-in SQLite.
 const [major, minor] = process.versions.node.split('.').map(Number);
@@ -24,14 +23,12 @@ Commands
   uninstall    Remove start-at-login and stop the background copy
   status       Show whether it is running, and the current reading
   open         Open the dashboard in your browser
-  key          Save a Claude API key for the optional AI summary
   screensaver  macOS: open Screen Saver settings to choose the Battery Speed saver
   help         Show this help
 
 Options
   --open       With start: also open the dashboard
   --port <n>   With start: use another port (default 4780)
-  --clear      With key: remove the saved key
   --version    Print the version
 `;
 
@@ -63,27 +60,6 @@ function describe(reading) {
   const d = reading.derived;
   const eta = d.etaMin != null ? `, about ${d.etaMin} min until ${d.etaKind}` : '';
   return `${reading.percent}% · ${d.headline}${eta}`;
-}
-
-/** Reads one line without echoing it, so a pasted key never shows on screen. */
-function askHidden(question) {
-  if (!process.stdin.isTTY) {
-    // Piped input: `echo "$KEY" | battery-speed key`
-    return new Promise((resolve) => {
-      let data = '';
-      process.stdin.on('data', (chunk) => (data += chunk)).on('end', () => resolve(data.trim()));
-    });
-  }
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    process.stdout.write(question);
-    rl._writeToOutput = () => {}; // swallow the echo
-    rl.question('', (answer) => {
-      rl.close();
-      process.stdout.write('\n');
-      resolve(answer.trim());
-    });
-  });
 }
 
 const commands = {
@@ -143,13 +119,12 @@ const commands = {
 
   async status() {
     const { probe, isInstalled } = await import('../src/autostart.js');
-    const { port, dataDir, VERSION, apiKey } = await import('../src/paths.js');
+    const { port, dataDir, VERSION } = await import('../src/paths.js');
     const reading = await probe();
     console.log(`Battery Speed ${VERSION}`);
     console.log(`  Running:        ${reading ? `yes, at http://localhost:${port()}` : 'no'}`);
     console.log(`  Start at login: ${isInstalled() ? 'yes' : 'no'}`);
     console.log(`  Data folder:    ${dataDir()}`);
-    console.log(`  AI summary:     ${apiKey() ? 'key saved' : 'off (no key)'}`);
     if (reading) console.log(`  Now:            ${describe(reading)}`);
   },
 
@@ -162,24 +137,6 @@ const commands = {
       return;
     }
     openBrowser(`http://localhost:${port()}`);
-  },
-
-  async key() {
-    const { saveConfig } = await import('../src/paths.js');
-    if (flag('clear')) {
-      saveConfig({ anthropicApiKey: null });
-      console.log('Removed the saved key. The AI summary is off.');
-      return;
-    }
-    console.log('The AI summary sends a digest of your battery stats to the Claude API when you press its button.');
-    const key = await askHidden('Paste your Claude API key (input is hidden): ');
-    if (!key) {
-      console.log('No key entered; nothing changed.');
-      return;
-    }
-    saveConfig({ anthropicApiKey: key });
-    console.log('Saved. It is stored in your Battery Speed data folder, readable only by you.');
-    console.log('If Battery Speed is already running it picks the key up on the next summary.');
   },
 
   async screensaver() {

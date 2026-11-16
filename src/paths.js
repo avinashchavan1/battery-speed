@@ -57,15 +57,10 @@ export function saveConfig(patch) {
   for (const key of Object.keys(next)) if (next[key] == null) delete next[key];
   const file = configFile();
   writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600); // may hold an API key: owner-only, even if it already existed
+  chmodSync(file, 0o600); // personal settings: owner-only, even if the file already existed
   return next;
 }
 
 export function port() {
   return Number(process.env.PORT) || Number(loadConfig().port) || DEFAULT_PORT;
-}
-
-/** The Claude API key for the AI summary, if one has been set up. */
-export function apiKey() {
-  return process.env.ANTHROPIC_API_KEY || loadConfig().anthropicApiKey || null;
 }

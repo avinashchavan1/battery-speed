@@ -32,7 +32,7 @@ const DAY = [
 const APPS = rankApps([
   { name: 'ffmpeg', total: 6000, minutes: 60 },
   { name: 'WindowServer (display)', total: 3000, minutes: 120 },
-  { name: 'Claude', total: 1000, minutes: 120 },
+  { name: 'Slack', total: 1000, minutes: 120 },
 ]);
 
 test('a period is summed up without counting sleep', () => {
@@ -74,10 +74,10 @@ test('the built-in summary leads with the most important finding and backs each 
   assert.doesNotMatch(text, /NaN|undefined|null/);
 });
 
-test('with no Claude key and no local model, the built-in analysis writes the summary', async () => {
+test('with no local model, the built-in analysis writes the summary', async () => {
   // Point the local-model lookup at a port nothing listens on.
   process.env.OLLAMA_HOST = 'http://127.0.0.1:9';
-  const result = await writeSummaryText({ digest: {}, builtin: 'Built-in text.', apiKey: null });
+  const result = await writeSummaryText({ digest: {}, builtin: 'Built-in text.' });
   assert.equal(result.text, 'Built-in text.');
   assert.equal(result.engine.kind, 'builtin');
 });

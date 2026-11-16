@@ -16,7 +16,7 @@ import { analysePeriod, rankApps, digestText, builtinSummary } from './analysis.
 import { ChargerMemory } from './chargers.js';
 import { HogWatch, hogAlert } from './hogs.js';
 import { notify } from './notify.js';
-import { ROOT, VERSION, dbFile, port as configuredPort, apiKey } from './paths.js';
+import { ROOT, VERSION, dbFile, port as configuredPort } from './paths.js';
 
 const HOST = '127.0.0.1'; // never exposed to the network
 const LIVE_MS = PLATFORM?.liveMs ?? 2000; // poll rate while a dashboard is open
@@ -88,7 +88,6 @@ export function startServer({ port = configuredPort() } = {}) {
     platform: PLATFORM?.label ?? process.platform,
     platformId: process.platform,
     energyMetric: PLATFORM?.energyMetric ?? 'cpu',
-    summaryReady: Boolean(apiKey()),
   });
 
   const send = (res, event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -244,7 +243,7 @@ export function startServer({ port = configuredPort() } = {}) {
         latest,
         chargerReport: chargers.report(now),
       });
-      const { text, engine, note } = await writeSummaryText({ digest, builtin, apiKey: apiKey() });
+      const { text, engine, note } = await writeSummaryText({ digest, builtin });
       const summary = { ts: now, text, model: engine.label, engine: engine.kind, note };
       store.setSetting('summary', JSON.stringify(summary));
       return summary;
@@ -400,7 +399,7 @@ export function startServer({ port = configuredPort() } = {}) {
     }
 
     if (pathname === '/api/summary' && req.method === 'GET') {
-      summaryEngine(apiKey()).then((engine) =>
+      summaryEngine().then((engine) =>
         json(res, 200, { summary: savedSummary(), ready: true, engine, digest: yesterdaysDigest() }),
       );
       return;
@@ -432,8 +431,7 @@ export function startServer({ port = configuredPort() } = {}) {
 
     if (pathname === '/api/settings' && req.method === 'GET') return json(res, 200, settingsView());
 
-    // Sends a digest of the last 24 hours to the Claude API. Only ever runs on
-    // an explicit request from the dashboard.
+    // Writes the summary of the last 24 hours, on request from the dashboard.
     if (pathname === '/api/summary' && req.method === 'POST') {
       if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin request refused' });
       writeSummary().then(

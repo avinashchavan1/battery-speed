@@ -1,10 +1,7 @@
-// AI summary: a plain-language read of the last 24 hours, written by Claude.
-//
-// This is the one feature that sends data off this Mac, so it only ever runs
-// when the user presses the button. What is sent: the digest built below
-// (battery numbers, alert titles, and the names of the top energy-using apps).
+// Summary: a plain-language read of the last 24 hours. Written by a local
+// open-source model when one is installed, otherwise by the built-in analysis.
+// Either way, nothing leaves this computer.
 
-const MODEL = 'claude-opus-5-5';
 const DAY_MS = 24 * 3600_000;
 
 const SYSTEM = `You write a short battery report for the owner of one laptop, from a JSON digest of the last 24 hours.
@@ -19,7 +16,7 @@ The reader wants to know what happened to their battery and what, if anything, t
 
 const round = (n, digits = 1) => (n == null ? null : Math.round(n * 10 ** digits) / 10 ** digits);
 
-/** The data sent to the model. Kept small and free of anything identifying. */
+/** The data given to the local model. Kept small and free of anything identifying. */
 export function buildDigest({ store, latest, energy, health, now = Date.now() }) {
   const since = now - DAY_MS;
   const byState = store.stateBreakdown(since).map((r) => ({
@@ -68,61 +65,6 @@ export function buildDigest({ store, latest, energy, health, now = Date.now() })
   };
 }
 
-/** Calls Claude. Resolves to { text, model } or throws an Error with a `.userMessage`. */
-export async function generateSummary(digest, apiKey) {
-  let Anthropic;
-  try {
-    ({ default: Anthropic } = await import('@anthropic-ai/sdk'));
-  } catch {
-    throw userError('The Claude SDK is not installed. Run "npm install" in the project folder.');
-  }
-
-  // The key comes from ANTHROPIC_API_KEY or from `battery-speed key`. Without
-  // one, the SDK falls back to its own sources (such as an `ant auth login` profile).
-  const client = new Anthropic(apiKey ? { apiKey } : {});
-
-  let response;
-  try {
-    response = await client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      output_config: { effort: 'low' }, // a short summary of a small digest
-      // If a safety classifier declines the request, re-run it on a fallback model.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify(digest, null, 2) }],
-    });
-  } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-      throw userError('Claude rejected the API key. Run "battery-speed key" to set a working one.');
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      throw userError('Claude is rate limiting requests right now. Try again in a minute.');
-    }
-    if (err instanceof Anthropic.APIConnectionError) {
-      throw userError('Could not reach the Claude API. Check the internet connection.');
-    }
-    if (err instanceof Anthropic.APIError) {
-      throw userError(`The Claude API returned an error (${err.status ?? 'unknown'}).`, err);
-    }
-    // The SDK throws a plain error when it finds no credentials at all.
-    throw userError(
-      'No Claude API key set up yet. Run "battery-speed key" in a terminal to add one.',
-      err,
-    );
-  }
-
-  if (response.stop_reason === 'refusal') throw userError('Claude declined to write this summary.');
-  const text = response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n')
-    .trim();
-  if (!text) throw userError('Claude returned an empty summary.');
-  return { text, model: response.model };
-}
-
 function userError(message, cause) {
   const err = new Error(message, { cause });
   err.userMessage = message;
@@ -131,11 +73,10 @@ function userError(message, cause) {
 
 // ---------------------------------------------------------------- engines
 //
-// The summary is written by the best free-or-configured option available:
-//   1. Claude, if an API key is set up (`battery-speed key`)
-//   2. a local open-source model through Ollama, if it is installed and has
-//      a model (runs on this computer: nothing leaves it, nothing to pay)
-//   3. the built-in analysis (src/analysis.js), which always works
+// The summary is written by the best option available, both free and private:
+//   1. a local open-source model through Ollama, if it is installed and has
+//      a model (it runs on this computer)
+//   2. the built-in analysis (src/analysis.js), which always works
 
 const OLLAMA = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 // Preferred families, roughly from best at short factual writing to smallest.
@@ -179,8 +120,7 @@ async function viaOllama(model, digest) {
 }
 
 /** Which engine would write the summary right now. */
-export async function summaryEngine(apiKey) {
-  if (apiKey) return { kind: 'claude', label: MODEL };
+export async function summaryEngine() {
   const model = await findOllamaModel();
   if (model) return { kind: 'local', label: `${model}, running on this computer` };
   return { kind: 'builtin', label: 'built-in analysis' };
@@ -190,10 +130,9 @@ export async function summaryEngine(apiKey) {
  * Writes the summary with the best available engine. A failing AI engine
  * falls back to the built-in analysis, so the button always gives an answer.
  */
-export async function writeSummaryText({ digest, builtin, apiKey }) {
-  const engine = await summaryEngine(apiKey);
+export async function writeSummaryText({ digest, builtin }) {
+  const engine = await summaryEngine();
   try {
-    if (engine.kind === 'claude') return { text: (await generateSummary(digest, apiKey)).text, engine };
     if (engine.kind === 'local') return { text: await viaOllama(engine.label.split(',')[0], digest), engine };
   } catch (err) {
     console.error(`[summary] ${engine.kind} failed, using the built-in analysis:`, err.cause?.message ?? err.message);

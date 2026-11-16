@@ -1,6 +1,6 @@
 {
   "name": "battery-speed",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Live battery stats, charging speed and time left, in an animated local dashboard. Works on macOS, Windows and Linux.",
   "keywords": [
     "battery",
@@ -49,8 +49,5 @@
     "sample": "node src/battery.js",
     "build:menubar": "bash scripts/build-menubar.sh",
     "build:screensaver": "bash scripts/build-screensaver.sh"
-  },
-  "optionalDependencies": {
-    "@anthropic-ai/sdk": "^1.8.0"
   }
 }
